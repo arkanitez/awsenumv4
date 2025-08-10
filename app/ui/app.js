@@ -24,6 +24,7 @@ window.addEventListener('unhandledrejection', e => {
 });
 
 let cy;
+let progressTimer = null;
 
 const ICONS = {
   vpc: '/ui/icons/vpc.svg',
@@ -60,17 +61,16 @@ const ICONS = {
   api_gw_v2_route: '/ui/icons/api-gateway-route.svg'
 };
 
-/** Container colors (lighter fills; same vivid border) */
+/** Very pale fills; vivid borders for containers */
 const CONTAINER_COLOR = {
-  vpc:          { fill: 'rgba(223, 252, 243, 0.06)',  border: '#10b981' }, // emerald
-  subnet:       { fill: 'rgba(228, 238, 254, 0.06)',  border: '#3b82f6' }, // blue
+  vpc:          { fill: 'rgba(16, 185, 129, 0.06)',  border: '#10b981' }, // emerald
+  subnet:       { fill: 'rgba(59, 130, 246, 0.06)',  border: '#3b82f6' }, // blue
   eks_cluster:  { fill: 'rgba(245, 158, 11, 0.06)',  border: '#f59e0b' }, // amber
   ecs_cluster:  { fill: 'rgba(147, 51, 234, 0.06)',  border: '#9333ea' }, // purple
   rds_cluster:  { fill: 'rgba(99, 102, 241, 0.06)',  border: '#6366f1' }  // indigo
 };
 
 const NODE_STYLES = [
-  // Base node styles (non-container)
   { selector: 'node', style: {
       'label': 'data(label)',
       'font-size': 11,
@@ -86,7 +86,6 @@ const NODE_STYLES = [
       'z-index-compare': 'manual',
       'z-index': 1
   }},
-  // Nodes with icons (non-container nodes only)
   { selector: 'node.has-icon', style: {
       'background-image': 'data(icon)',
       'background-fit': 'contain',
@@ -97,7 +96,6 @@ const NODE_STYLES = [
       'background-position-x': '50%',
       'background-position-y': '40%'
   }},
-  // Generic container styling
   { selector: 'node.container', style: {
       'background-opacity': 1,
       'padding': 16,
@@ -111,13 +109,11 @@ const NODE_STYLES = [
       'z-index-compare': 'manual',
       'z-index': 0
   }},
-  // Container colors
   { selector: 'node.container-vpc',         style: { 'background-color': CONTAINER_COLOR.vpc.fill,        'border-color': CONTAINER_COLOR.vpc.border } },
   { selector: 'node.container-subnet',      style: { 'background-color': CONTAINER_COLOR.subnet.fill,     'border-color': CONTAINER_COLOR.subnet.border } },
   { selector: 'node.container-eks_cluster', style: { 'background-color': CONTAINER_COLOR.eks_cluster.fill,'border-color': CONTAINER_COLOR.eks_cluster.border } },
   { selector: 'node.container-ecs_cluster', style: { 'background-color': CONTAINER_COLOR.ecs_cluster.fill,'border-color': CONTAINER_COLOR.ecs_cluster.border } },
   { selector: 'node.container-rds_cluster', style: { 'background-color': CONTAINER_COLOR.rds_cluster.fill,'border-color': CONTAINER_COLOR.rds_cluster.border } },
-
   { selector: 'node:selected', style: { 'border-color': '#111827', 'border-width': 3 } },
 ];
 
@@ -150,7 +146,6 @@ function initCySafe() {
     elements: [],
     minZoom: 0.25,
     maxZoom: 2.5,
-    wheelSensitivity: 0.1,
     pixelRatio: 1,
     boxSelectionEnabled: false,
     style: [
@@ -305,6 +300,10 @@ function sanitizeElements(elements) {
   return cleaned;
 }
 
+function escapeHtml(s){
+  return s.replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+}
+
 function renderDetails(data){
   const el = document.getElementById('details');
   const links = (data?.details && Array.isArray(data.details.links)) ? data.details.links : [];
@@ -322,15 +321,89 @@ function renderDetails(data){
   el.innerHTML = html;
 }
 
-function escapeHtml(s){
-  return s.replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+// ---------- Progress UI ----------
+
+function ensureProgressBar(){
+  let wrap = document.getElementById('progress-wrap');
+  if (wrap) return wrap;
+  wrap = document.createElement('div');
+  wrap.id = 'progress-wrap';
+  wrap.style.position = 'absolute';
+  wrap.style.left = '360px'; // sidebar width; keep consistent with your layout
+  wrap.style.right = '0';
+  wrap.style.top = '0';
+  wrap.style.padding = '10px 16px 0 16px';
+  wrap.style.pointerEvents = 'none';
+  wrap.style.zIndex = '9999';
+
+  const inner = document.createElement('div');
+  inner.style.maxWidth = '800px';
+  inner.style.margin = '0 auto';
+  inner.style.pointerEvents = 'auto';
+
+  const bar = document.createElement('sl-progress-bar');
+  bar.id = 'progress-bar';
+  bar.style.width = '100%';
+  bar.value = 0;
+  bar.setAttribute('label', 'Starting…');
+
+  inner.appendChild(bar);
+  wrap.appendChild(inner);
+  document.body.appendChild(wrap);
+  return wrap;
+}
+
+function showProgress(){
+  const wrap = ensureProgressBar();
+  wrap.style.display = 'block';
+  const bar = document.getElementById('progress-bar');
+  bar.value = 0;
+  bar.setAttribute('label', 'Starting…');
+}
+
+function hideProgress(){
+  const wrap = document.getElementById('progress-wrap');
+  if (wrap) wrap.style.display = 'none';
+  if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
+}
+
+function newRid(){
+  // simple UUIDv4-ish
+  const buf = new Uint8Array(16);
+  crypto.getRandomValues(buf);
+  buf[6] = (buf[6] & 0x0f) | 0x40;
+  buf[8] = (buf[8] & 0x3f) | 0x80;
+  const hex = [...buf].map(b => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.substr(0,8)}-${hex.substr(8,4)}-${hex.substr(12,4)}-${hex.substr(16,4)}-${hex.substr(20)}`;
+}
+
+async function pollProgress(rid){
+  try {
+    const res = await fetch(`/progress?rid=${encodeURIComponent(rid)}`, { cache: 'no-store' });
+    if (!res.ok) return;
+    const js = await res.json();
+    const bar = document.getElementById('progress-bar');
+    if (!bar) return;
+    const total = Math.max(1, Number(js.total || 1));
+    const current = Math.min(total, Number(js.current || 0));
+    const pct = Math.round((current / total) * 100);
+    bar.value = pct;
+    const stage = String(js.stage || 'Enumerating…');
+    bar.setAttribute('label', `${stage} (${current}/${total})`);
+    if (js.done) {
+      bar.setAttribute('label', `Completed (${total}/${total})`);
+      setTimeout(hideProgress, 600);
+    }
+  } catch (e) {
+    // swallow transient errors
+  }
 }
 
 // ---- Enumerate helpers ----
-async function postEnumerate(){
+async function postEnumerate(rid){
   const ak = (document.getElementById('ak')?.value || '').trim();
   const sk = (document.getElementById('sk')?.value || '').trim();
-  const payload = { access_key_id: ak, secret_access_key: sk };
+  const payload = { access_key_id: ak, secret_access_key: sk, rid };
 
   const res = await fetch('/enumerate', {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -348,9 +421,14 @@ async function handleEnumerateClick(){
   const btn = document.getElementById('btn-enumerate');
   if (!ak || !sk) { renderWarnings(['Please provide both Access Key ID and Secret Access Key.']); return; }
 
+  const rid = newRid();
+  showProgress();
+  if (progressTimer) clearInterval(progressTimer);
+  progressTimer = setInterval(() => pollProgress(rid), 500);
+
   btn.loading = true;
   try {
-    const { ok, status, data } = await postEnumerate();
+    const { ok, status, data } = await postEnumerate(rid);
     if (!ok) { renderWarnings([data?.error || `Request failed with ${status}`]); return; }
 
     let elements = data?.elements || [];
@@ -378,14 +456,18 @@ async function handleEnumerateClick(){
     renderFindings(data.findings || []); renderWarnings(data.warnings || []);
   } catch (e){
     renderWarnings([String(e)]);
-  } finally { btn.loading = false; }
+  } finally {
+    btn.loading = false;
+    // The server will flip done=true; poller will hide bar shortly after
+    setTimeout(() => pollProgress(rid), 200);
+  }
 }
 
 function bindUI(){
   console.log('[ui] bindUI');
   const btn = document.getElementById('btn-enumerate');
   if (!btn) { console.error('[ui] enumerate button not found'); return; }
-  Promise.all([ customElements.whenDefined('sl-button'), customElements.whenDefined('sl-input') ])
+  Promise.all([ customElements.whenDefined('sl-button'), customElements.whenDefined('sl-input'), customElements.whenDefined('sl-progress-bar') ])
     .then(() => {
       console.log('[ui] custom elements ready; binding click handlers');
       btn.addEventListener('click', handleEnumerateClick);
