@@ -97,7 +97,7 @@ const NODE_STYLES = [
       'background-position-x': '50%',
       'background-position-y': '40%'
   }},
-  // Generic container styling (push behind edges/nodes)
+  // Generic container styling
   { selector: 'node.container', style: {
       'background-opacity': 1,
       'padding': 16,
@@ -107,11 +107,11 @@ const NODE_STYLES = [
       'text-margin-y': 6,
       'border-width': 2,
       'background-image': 'none',
-      'z-compound-depth': 'bottom',   // <- ensure containers are drawn at the back
+      'z-compound-depth': 'bottom',
       'z-index-compare': 'manual',
       'z-index': 0
   }},
-  // Container colors by type (very pale fills; same border)
+  // Container colors
   { selector: 'node.container-vpc',         style: { 'background-color': CONTAINER_COLOR.vpc.fill,        'border-color': CONTAINER_COLOR.vpc.border } },
   { selector: 'node.container-subnet',      style: { 'background-color': CONTAINER_COLOR.subnet.fill,     'border-color': CONTAINER_COLOR.subnet.border } },
   { selector: 'node.container-eks_cluster', style: { 'background-color': CONTAINER_COLOR.eks_cluster.fill,'border-color': CONTAINER_COLOR.eks_cluster.border } },
@@ -166,7 +166,7 @@ function initCySafe() {
 
   cy.on('select', 'node,edge', (e) => {
     const d = e.target.data();
-    document.getElementById('details').innerHTML = '<pre>' + JSON.stringify(d, null, 2) + '</pre>';
+    renderDetails(d);
   });
   cy.on('unselect', () => {
     document.getElementById('details').innerHTML = '<div class="muted">Select a node or edge.</div>';
@@ -235,19 +235,12 @@ function markContainers(elements) {
     const id = el.data.id;
     if (!id || !parentIds.has(id)) return el;
 
-    // This node is a container (has children)
     const t = (el.data.type || '').trim();
-    // classes: container + container-<type>
     const cls = (el.classes || '').trim();
-    const containerCls = [
-      'container',
-      t ? `container-${t}` : null
-    ].filter(Boolean).join(' ');
+    const containerCls = ['container', t ? `container-${t}` : null].filter(Boolean).join(' ');
     el.classes = (cls ? cls + ' ' : '') + containerCls;
 
-    // ensure no icon applies to containers
     if (el.data.icon) delete el.data.icon;
-    // also remove 'has-icon' if present
     el.classes = el.classes.replace(/\bhas-icon\b/g, '').trim();
 
     return el;
@@ -258,14 +251,8 @@ function markContainers(elements) {
 function injectIcons(elements){
   return (elements || []).map(el => {
     if (!el || !el.data || el.group !== 'nodes') return el;
-
-    // Skip containers (they won't have has-icon class)
     const isContainer = /\bcontainer\b/.test(el.classes || '');
-    if (isContainer) {
-      if (el.data.icon) delete el.data.icon;
-      return el;
-    }
-
+    if (isContainer) { if (el.data.icon) delete el.data.icon; return el; }
     const t = el.data.type;
     const icon = iconFor(t);
     if (icon) {
@@ -273,9 +260,7 @@ function injectIcons(elements){
       const cls = (el.classes || '').trim();
       el.classes = (cls ? cls + ' ' : '') + 'has-icon';
     } else {
-      if ('icon' in el.data && (!el.data.icon || !String(el.data.icon).trim())) {
-        delete el.data.icon;
-      }
+      if ('icon' in el.data && (!el.data.icon || !String(el.data.icon).trim())) delete el.data.icon;
     }
     return el;
   });
@@ -283,16 +268,12 @@ function injectIcons(elements){
 
 /** Remove edges that reference non-existent nodes. Also dedupe by id. */
 function sanitizeElements(elements) {
-  const nodes = [];
-  const edges = [];
-
+  const nodes = [], edges = [];
   for (const el of elements || []) {
     if (!el || !el.data) continue;
     const isEdge = !!(el.data.source || el.data.target) || el.group === 'edges';
     if (isEdge) edges.push(el); else nodes.push(el);
   }
-
-  // dedupe nodes by id (keep first)
   const nodeMap = new Map();
   for (const n of nodes) {
     const id = n?.data?.id;
@@ -300,20 +281,14 @@ function sanitizeElements(elements) {
     nodeMap.set(id, n);
   }
   const nodeIds = new Set(nodeMap.keys());
-
-  // keep only edges with both endpoints present; dedupe by edge id
   const edgeMap = new Map();
   let dropped = 0;
   for (const e of edges) {
     const d = e.data || {};
-    if (!d.source || !d.target || !nodeIds.has(d.source) || !nodeIds.has(d.target)) {
-      dropped++;
-      continue;
-    }
+    if (!d.source || !d.target || !nodeIds.has(d.source) || !nodeIds.has(d.target)) { dropped++; continue; }
     const eid = d.id || `${d.source}->${d.target}`;
     if (!edgeMap.has(eid)) edgeMap.set(eid, e);
   }
-
   const cleaned = [...nodeMap.values(), ...edgeMap.values()];
   if (dropped > 0) {
     console.warn('[ui] filtered invalid edges:', dropped);
@@ -327,6 +302,27 @@ function sanitizeElements(elements) {
     }
   }
   return cleaned;
+}
+
+function renderDetails(data){
+  const el = document.getElementById('details');
+  const links = (data?.details && Array.isArray(data.details.links)) ? data.details.links : [];
+  let html = '';
+  if (links.length) {
+    html += '<div style="margin-bottom:8px"><strong>Downloads</strong><ul style="margin:6px 0 10px 18px">';
+    for (const l of links) {
+      const t = String(l.title || 'download');
+      const href = String(l.href || '#');
+      html += `<li><a href="${href}" target="_blank" rel="noopener">${t}</a></li>`;
+    }
+    html += '</ul></div>';
+  }
+  html += `<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+  el.innerHTML = html;
+}
+
+function escapeHtml(s){
+  return s.replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
 }
 
 // ---- Enumerate helpers ----
@@ -358,13 +354,10 @@ async function handleEnumerateClick(){
 
     let elements = data?.elements || [];
     console.log('[ui] elements count:', elements.length);
-    window.lastElements = elements; // keep for debugging
+    window.lastElements = elements;
 
-    // 1) Filter invalid edges
     elements = sanitizeElements(elements);
-    // 2) Mark containers (parents)
     elements = markContainers(elements);
-    // 3) Inject icons into non-container nodes
     elements = injectIcons(elements);
 
     cy.elements().remove();
@@ -377,7 +370,7 @@ async function handleEnumerateClick(){
     });
     layout.run();
     layout.on('layoutstop', () => { cy.fit(null, 60); });
-    setTimeout(() => { cy.fit(null, 60); }, 120); // extra safety
+    setTimeout(() => { cy.fit(null, 60); }, 120);
 
     console.log('[ui] nodes:', cy.nodes().size(), 'edges:', cy.edges().size(),
                 'rect:', cy.container().getBoundingClientRect());
