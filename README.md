@@ -141,15 +141,11 @@ Use **read‑only** creds. The app only reads metadata to draw your cloud. Avoid
 **Do I need to set environment variables?**
 No—enter keys in the UI. Advanced users can configure environment variables or profiles as they extend the app.
 
-**Can I change the region?**
-Yes—use the UI region selector (default is `ap-southeast-1`).
-
 **How do I export the graph?**
-Use your browser’s screenshot or add a small export button (contributors welcome!).
+Use your browser’s screenshot.
 
 ---
 
 ## Credits
 
 * Built with **FastAPI** (backend) and **Cytoscape** (frontend).
-* Thanks to contributors and testers.
