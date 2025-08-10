@@ -1,26 +1,27 @@
 from __future__ import annotations
 
 import os
+import uuid
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote_plus
 from threading import Lock
-import uuid
 
 import boto3
 from botocore.config import Config
 from fastapi import FastAPI, Request, Query
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 import orjson
 
 from .graph import Graph
-# Keep these aligned with your repo's enumerators
+# Keep these aligned with your repo
 from .enumerators import (
     ec2, elbv2, lambda_ as enum_lambda, apigwv2, s3, sqs_sns,
     dynamodb, rds, eks, ecs, eventbridge, cloudfront
 )
 
-# Optional modules — make safe fallbacks if not present
+# Optional imports — safe fallbacks if not present
 try:
     from .reachability import derive_reachability
 except Exception:
@@ -274,7 +275,7 @@ async def open_in_console(arn: str = Query(...)):
         parts = arn.split(':')
         if len(parts) < 6:
             return JSONResponse({"error": "unsupported arn format"}, status_code=400)
-        service = parts[2]; region = parts[3]; account = parts[4]
+        service = parts[2]; region = parts[3]
         rest = ':'.join(parts[5:])
         url = None
         if service == 'lambda':
@@ -322,7 +323,6 @@ def _enumerate_one_region(
     warnings: List[str] = []
     g = Graph()
 
-    per_region_steps = len(SERVICES_ORDER) + 2  # + reachability + findings
     if progress_rid:
         _progress_stage(progress_rid, f"Enumerating services ({region})")
 
@@ -405,9 +405,6 @@ def _augment_download_links(elements: List[Dict[str, Any]], ak: Optional[str], s
                 qs = f"region={quote_plus(region)}"
                 if fn_arn: qs += f"&functionArn={quote_plus(fn_arn)}"
                 if fn_name: qs += f"&functionName={quote_plus(fn_name)}"
-                if ak: qs += f"&ak={quote_plus(ak)}"
-                if sk: qs += f"&sk={quote_plus(sk)}"
-                if st: qs += f"&st={quote_plus(st)}"
                 add("Download Lambda code (zip)", f"/download/lambda-code?{qs}")
 
         if ntype == "lambda_layer":
@@ -415,18 +412,12 @@ def _augment_download_links(elements: List[Dict[str, Any]], ak: Optional[str], s
             version = details.get("version") or details.get("Version")
             if layer_arn and version:
                 qs = f"region={quote_plus(region)}&layerArn={quote_plus(layer_arn)}&version={quote_plus(str(version))}"
-                if ak: qs += f"&ak={quote_plus(ak)}"
-                if sk: qs += f"&sk={quote_plus(sk)}"
-                if st: qs += f"&st={quote_plus(st)}"
                 add("Download Lambda layer (zip)", f"/download/lambda-layer?{qs}")
 
         if ntype == "api_gw_v2":
             api_id = details.get("api_id") or _id_last(data.get("id") or "")
             if api_id:
                 qs = f"region={quote_plus(region)}&apiId={quote_plus(api_id)}"
-                if ak: qs += f"&ak={quote_plus(ak)}"
-                if sk: qs += f"&sk={quote_plus(sk)}"
-                if st: qs += f"&st={quote_plus(st)}"
                 add("Download API Gateway (HTTP/WebSocket) export (json)", f"/download/apigwv2-export?{qs}")
 
         if ntype == "dynamodb_table":
@@ -436,22 +427,20 @@ def _augment_download_links(elements: List[Dict[str, Any]], ak: Optional[str], s
                 qs = f"region={quote_plus(region)}"
                 if tab_arn: qs += f"&tableArn={quote_plus(tab_arn)}"
                 if tab_name: qs += f"&tableName={quote_plus(tab_name)}"
-                if ak: qs += f"&ak={quote_plus(ak)}"
-                if sk: qs += f"&sk={quote_plus(sk)}"
-                if st: qs += f"&st={quote_plus(st)}"
                 add("Download DynamoDB table (describe json)", f"/download/dynamodb-table?{qs}")
 
         if ntype == "cloudfront":
             dist_id = details.get("id") or _id_last(data.get("id") or "")
             if dist_id:
                 qs = f"id={quote_plus(dist_id)}"
-                if ak: qs += f"&ak={quote_plus(ak)}"
-                if sk: qs += f"&sk={quote_plus(sk)}"
-                if st: qs += f"&st={quote_plus(st)}"
                 add("Download CloudFront distribution config (json)", f"/download/cloudfront-config?{qs}")
 
 @app.post('/enumerate')
 async def enumerate_api(req: Request):
+    """
+    IMPORTANT: Run the heavy, blocking boto3 enumeration in a threadpool so the event
+    loop can keep serving /progress. This is why the progress bar was gray before.
+    """
     payload = await req.json()
     ak = (payload.get('access_key_id') or '').strip() or None
     sk = (payload.get('secret_access_key') or '').strip() or None
@@ -460,51 +449,57 @@ async def enumerate_api(req: Request):
     scan_all = bool(payload.get('scan_all'))
     rid = (payload.get('rid') or '').strip() or str(uuid.uuid4())
 
-    sess = build_session(ak, sk, st, region)
-
-    # Initialize progress
+    # Initialize progress immediately
     per_region_steps = len(SERVICES_ORDER) + 2  # reachability + findings
     _progress_init(rid, per_region_steps, region)
+    _progress_stage(rid, f"Starting in {region}")
 
-    warnings: List[str] = []
-    account_id = 'self'
-    try:
-        me = sess.client('sts', config=_boto_cfg()).get_caller_identity()
-        account_id = me.get('Account') or 'self'
-    except Exception as e:
-        warnings.append(f'sts get_caller_identity failed: {e}')
+    def do_enumeration() -> Dict[str, Any]:
+        sess = build_session(ak, sk, st, region)
 
-    elements, w_reg, findings = _enumerate_one_region(sess, account_id, region, progress_rid=rid)
-    warnings.extend(w_reg)
+        warnings: List[str] = []
+        account_id = 'self'
+        try:
+            me = sess.client('sts', config=_boto_cfg()).get_caller_identity()
+            account_id = me.get('Account') or 'self'
+        except Exception as e:
+            warnings.append(f'sts get_caller_identity failed: {e}')
 
-    scanned_regions = [region]
-    # Optional multi-region fallback — if enabled and nothing found in region, scan others
-    if scan_all and not elements:
-        regions = [r for r in _list_enabled_regions(sess) if r != region]
-        # update total to account for additional regions
-        extra_total = (len(regions)) * (len(SERVICES_ORDER) + 2)
-        _progress_add_total(rid, extra_total)
-        for r in regions:
-            _progress_stage(rid, f"Switching region: {r}")
-            rsess = build_session(ak, sk, st, r)
-            el2, w2, f2 = _enumerate_one_region(rsess, account_id, r, progress_rid=rid)
-            elements.extend(el2)
-            warnings.extend(w2)
-            for f in f2:
-                if f not in findings:
-                    findings.append(f)
-            scanned_regions.append(r)
+        elements, w_reg, findings = _enumerate_one_region(sess, account_id, region, progress_rid=rid)
+        warnings.extend(w_reg)
 
-    # Add downloads to node details (needs creds for signing/redirects)
-    _augment_download_links(elements, ak, sk, st)
+        scanned_regions = [region]
 
-    _progress_done(rid)
+        # Optional multi-region fallback
+        if scan_all and not elements:
+            regions = [r for r in _list_enabled_regions(sess) if r != region]
+            extra_total = (len(regions)) * (len(SERVICES_ORDER) + 2)
+            _progress_add_total(rid, extra_total)
+            for r in regions:
+                _progress_stage(rid, f"Switching region: {r}")
+                rsess = build_session(ak, sk, st, r)
+                el2, w2, f2 = _enumerate_one_region(rsess, account_id, r, progress_rid=rid)
+                elements.extend(el2)
+                warnings.extend(w2)
+                for f in f2:
+                    if f not in findings:
+                        findings.append(f)
+                scanned_regions.append(r)
 
-    return json_response({
-        'rid': rid,
-        'elements': elements,
-        'warnings': warnings,
-        'findings': findings,
-        'region': region,
-        'scanned_regions': scanned_regions
-    })
+        # Add download links
+        _augment_download_links(elements, ak, sk, st)
+
+        _progress_done(rid)
+
+        return {
+            'rid': rid,
+            'elements': elements,
+            'warnings': warnings,
+            'findings': findings,
+            'region': region,
+            'scanned_regions': scanned_regions
+        }
+
+    # Offload the blocking work
+    result = await run_in_threadpool(do_enumeration)
+    return json_response(result)
