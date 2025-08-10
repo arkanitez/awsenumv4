@@ -60,17 +60,17 @@ const ICONS = {
   api_gw_v2_route: '/ui/icons/api-gateway-route.svg'
 };
 
-/** Container colors (distinct & semi-transparent) */
+/** Container colors (lighter fills; same vivid border) */
 const CONTAINER_COLOR = {
-  vpc:       { fill: 'rgba(16, 185, 129, 0.15)', border: '#10b981' }, // light green
-  subnet:    { fill: 'rgba(59, 130, 246, 0.15)', border: '#3b82f6' }, // light blue
-  eks_cluster: { fill: 'rgba(245, 158, 11, 0.14)', border: '#f59e0b' }, // amber
-  ecs_cluster: { fill: 'rgba(147, 51, 234, 0.14)', border: '#9333ea' }, // purple
-  rds_cluster: { fill: 'rgba(99, 102, 241, 0.14)', border: '#6366f1' }  // indigo (if used)
+  vpc:          { fill: 'rgba(16, 185, 129, 0.06)',  border: '#10b981' }, // emerald
+  subnet:       { fill: 'rgba(59, 130, 246, 0.06)',  border: '#3b82f6' }, // blue
+  eks_cluster:  { fill: 'rgba(245, 158, 11, 0.06)',  border: '#f59e0b' }, // amber
+  ecs_cluster:  { fill: 'rgba(147, 51, 234, 0.06)',  border: '#9333ea' }, // purple
+  rds_cluster:  { fill: 'rgba(99, 102, 241, 0.06)',  border: '#6366f1' }  // indigo
 };
 
 const NODE_STYLES = [
-  // Base node styles
+  // Base node styles (non-container)
   { selector: 'node', style: {
       'label': 'data(label)',
       'font-size': 11,
@@ -82,7 +82,9 @@ const NODE_STYLES = [
       'border-color': '#e5e7eb',
       'text-valign': 'bottom',
       'text-halign': 'center',
-      'color':'#111827'
+      'color':'#111827',
+      'z-index-compare': 'manual',
+      'z-index': 1
   }},
   // Nodes with icons (non-container nodes only)
   { selector: 'node.has-icon', style: {
@@ -95,7 +97,7 @@ const NODE_STYLES = [
       'background-position-x': '50%',
       'background-position-y': '40%'
   }},
-  // Generic container styling
+  // Generic container styling (push behind edges/nodes)
   { selector: 'node.container', style: {
       'background-opacity': 1,
       'padding': 16,
@@ -104,15 +106,17 @@ const NODE_STYLES = [
       'text-margin-x': 6,
       'text-margin-y': 6,
       'border-width': 2,
-      // ensure icon background never applies to containers
-      'background-image': 'none'
+      'background-image': 'none',
+      'z-compound-depth': 'bottom',   // <- ensure containers are drawn at the back
+      'z-index-compare': 'manual',
+      'z-index': 0
   }},
-  // Container colors by type
-  { selector: 'node.container-vpc',    style: { 'background-color': CONTAINER_COLOR.vpc.fill,    'border-color': CONTAINER_COLOR.vpc.border } },
-  { selector: 'node.container-subnet', style: { 'background-color': CONTAINER_COLOR.subnet.fill, 'border-color': CONTAINER_COLOR.subnet.border } },
-  { selector: 'node.container-eks_cluster', style: { 'background-color': CONTAINER_COLOR.eks_cluster.fill, 'border-color': CONTAINER_COLOR.eks_cluster.border } },
-  { selector: 'node.container-ecs_cluster', style: { 'background-color': CONTAINER_COLOR.ecs_cluster.fill, 'border-color': CONTAINER_COLOR.ecs_cluster.border } },
-  { selector: 'node.container-rds_cluster', style: { 'background-color': CONTAINER_COLOR.rds_cluster.fill, 'border-color': CONTAINER_COLOR.rds_cluster.border } },
+  // Container colors by type (very pale fills; same border)
+  { selector: 'node.container-vpc',         style: { 'background-color': CONTAINER_COLOR.vpc.fill,        'border-color': CONTAINER_COLOR.vpc.border } },
+  { selector: 'node.container-subnet',      style: { 'background-color': CONTAINER_COLOR.subnet.fill,     'border-color': CONTAINER_COLOR.subnet.border } },
+  { selector: 'node.container-eks_cluster', style: { 'background-color': CONTAINER_COLOR.eks_cluster.fill,'border-color': CONTAINER_COLOR.eks_cluster.border } },
+  { selector: 'node.container-ecs_cluster', style: { 'background-color': CONTAINER_COLOR.ecs_cluster.fill,'border-color': CONTAINER_COLOR.ecs_cluster.border } },
+  { selector: 'node.container-rds_cluster', style: { 'background-color': CONTAINER_COLOR.rds_cluster.fill,'border-color': CONTAINER_COLOR.rds_cluster.border } },
 
   { selector: 'node:selected', style: { 'border-color': '#111827', 'border-width': 3 } },
 ];
