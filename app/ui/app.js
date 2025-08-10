@@ -150,6 +150,7 @@ function initCySafe() {
     elements: [],
     minZoom: 0.25,
     maxZoom: 2.5,
+    wheelSensitivity: 0.1,
     pixelRatio: 1,
     boxSelectionEnabled: false,
     style: [
