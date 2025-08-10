@@ -13,6 +13,9 @@ from .findings import analyze as analyze_findings
 from .enumerators import ec2, elbv2, lambda_, apigwv2, s3, sqs_sns, dynamodb, rds, eks, ecs
 from .enumerators import eventbridge, cloudfront
 
+# NEW: Lambda <-> DynamoDB linker
+from .linkers.ddb_links import link_lambda_to_dynamodb
+
 DEFAULT_REGION = os.environ.get('DEFAULT_REGION', 'ap-southeast-1')
 
 def json_response(obj: Any) -> JSONResponse:
@@ -60,13 +63,11 @@ def _enumerate_one_region(sess: boto3.Session, account_id: str, region: str) -> 
         ('ecs', ecs.enumerate),
     ]
 
-    # Very simple per-service delta counter (best-effort)
     service_counts: Dict[str, int] = {}
 
     for name, fn in services:
         before = 0
         try:
-            # If Graph.elements() is cheap, we can count; otherwise ignore errors
             try:
                 before = len(list(g.elements()))
             except Exception:
@@ -79,23 +80,26 @@ def _enumerate_one_region(sess: boto3.Session, account_id: str, region: str) -> 
                 after = len(list(g.elements()))
                 service_counts[name] = max(0, after - before)
             except Exception:
-                # If counting fails (e.g., elements() is a generator), don’t block enumeration
                 pass
 
-    # Derived reachability edges
+    # --- NEW: link Lambda -> DynamoDB by IAM policies & env vars
+    try:
+        link_lambda_to_dynamodb(sess, account_id, region, g, warnings)
+    except Exception as e:
+        warnings.append(f'link_lambda_to_dynamodb failed: {e}')
+
+    # Derived reachability edges (network reachability etc)
     try:
         for e in derive_reachability(g):
             g.add_edge(**e)
     except Exception as e:
         warnings.append(f'derive_reachability failed: {e}')
 
-    # ---- IMPORTANT FIX: materialize once; safe to iterate multiple times
+    # Materialize once; safe to iterate multiple times
     elements: List[Dict[str, Any]] = list(g.elements())
 
-    # Findings can now safely iterate
     findings = analyze_findings(elements)
 
-    # Basic counts for visibility (does not consume elements)
     try:
         total_nodes = sum(1 for el in elements if 'source' not in (el.get('data') or {}))
         total_edges = sum(1 for el in elements if 'source' in (el.get('data') or {}))
@@ -139,11 +143,9 @@ async def enumerate_api(req: Request):
     except Exception as e:
         warnings.append(f'sts get_caller_identity failed: {e}')
 
-    # Single region enumeration
     elements, w_reg, findings = _enumerate_one_region(sess, account_id, region)
     warnings.extend(w_reg)
 
-    # If empty and the client asked to scan all regions, do it now
     scanned_regions = [region]
     if scan_all and not elements:
         regions = [r for r in _list_enabled_regions(sess) if r != region]
@@ -152,7 +154,6 @@ async def enumerate_api(req: Request):
             el2, w2, f2 = _enumerate_one_region(rsess, account_id, r)
             elements.extend(el2)
             warnings.extend(w2)
-            # findings is a list of dicts; naive de-dupe by string repr is fine
             for f in f2:
                 if f not in findings:
                     findings.append(f)
