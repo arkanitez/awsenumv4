@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128">
+  <rect x="2" y="2" width="124" height="124" rx="12" fill="#fff" stroke="#cbd5e1" stroke-width="2"></rect>
+  <rect x="2" y="2" width="124" height="26" rx="12" fill="#22c55e"></rect>
+  <g stroke="#065f46" stroke-width="2" fill="none">
+    <rect x="20" y="50" width="88" height="28" rx="6"></rect>
+    <line x1="44" y1="50" x2="44" y2="78"></line>
+    <line x1="68" y1="50" x2="68" y2="78"></line>
+  </g>
+  <text x="64" y="112" font-family="Arial" font-size="14" text-anchor="middle" fill="#065f46">Subnet</text>
+</svg>

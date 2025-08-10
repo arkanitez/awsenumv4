@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128">
+  <rect x="2" y="2" width="124" height="124" rx="12" fill="#fff" stroke="#06b6d4" stroke-width="3"></rect>
+  <rect x="2" y="2" width="124" height="26" rx="12" fill="#06b6d4"></rect>
+  <g fill="none" stroke="#0e7490" stroke-width="2">
+    <rect x="22" y="50" width="84" height="16" rx="4"></rect>
+    <rect x="22" y="70" width="84" height="16" rx="4"></rect>
+    <rect x="22" y="90" width="84" height="16" rx="4"></rect>
+  </g>
+  <text x="64" y="114" font-family="Arial" font-size="12" text-anchor="middle" fill="#0e7490">SQS</text>
+</svg>

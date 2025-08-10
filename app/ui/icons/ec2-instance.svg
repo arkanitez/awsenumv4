@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128">
+  <rect x="2" y="2" width="124" height="124" rx="12" fill="#fff" stroke="#cbd5e1" stroke-width="2"></rect>
+  <rect x="2" y="2" width="124" height="26" rx="12" fill="#10b981"></rect>
+  <g stroke="#065f46" stroke-width="2" fill="none">
+    <rect x="28" y="50" width="72" height="44" rx="6"></rect>
+    <rect x="48" y="98" width="32" height="6" rx="3" fill="#065f46"></rect>
+  </g>
+  <text x="64" y="44" font-family="Arial" font-weight="700" font-size="14" text-anchor="middle" fill="#065f46">EC2</text>
+</svg>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128">
+  <rect x="2" y="2" width="124" height="124" rx="12" fill="#fff" stroke="#cbd5e1" stroke-width="2"></rect>
+  <rect x="2" y="2" width="124" height="26" rx="12" fill="#15803d"></rect>
+  <g stroke="#064e3b" stroke-width="2" fill="none">
+    <path d="M20 58h50l10 10M20 82h88"></path>
+    <circle cx="82" cy="68" r="4" fill="#064e3b"></circle>
+  </g>
+  <text x="64" y="112" font-family="Arial" font-size="13" text-anchor="middle" fill="#064e3b">Route Table</text>
+</svg>

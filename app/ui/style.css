@@ -1,0 +1,40 @@
+/* Reset / base */
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color: #111827; background: #ffffff; }
+
+/* App layout: fixed left sidebar + canvas */
+.app {
+  display: grid;
+  grid-template-columns: 360px 1fr;    /* sidebar width */
+  height: 100vh;                       /* critical: makes #cy visible */
+}
+
+/* Sidebar */
+.sidebar {
+  border-right: 1px solid #e5e7eb;
+  background: #fff;
+  position: sticky; top: 0; height: 100vh; /* fixed; doesn’t move sideways */
+  overflow: auto;
+}
+.pad { padding: 16px; }
+.title { margin: 0 0 12px 0; font-size: 18px; font-weight: 700; }
+.btn-row { display: flex; gap: 8px; margin: 12px 0 8px; }
+
+#legend .legend-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 13px; }
+#legend .swatch { width: 24px; height: 4px; border-radius: 2px; display: inline-block; }
+
+/* Details panel */
+.details { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; white-space: pre-wrap; }
+.muted { color: #6b7280; }
+
+/* Canvas */
+.main { height: 100vh; overflow: hidden; }
+#cy {
+  height: 100vh;      /* critical: ensures cytoscape has real size */
+  width: 100%;
+  background: #ffffff;
+}
+
+/* Shoelace tweaks (pure black text as requested) */
+sl-input::part(base), sl-details::part(base), sl-button::part(base) { color: #000000; }

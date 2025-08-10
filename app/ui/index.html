@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>AWS Enum</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Our styles -->
+  <link rel="stylesheet" href="/ui/style.css" />
+
+  <!-- Shoelace (UI kit) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.15.1/cdn/themes/light.css" />
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.15.1/cdn/shoelace.js"></script>
+
+  <!-- Cytoscape core + plugins -->
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+  <script src="https://unpkg.com/cytoscape-cose-bilkent@4.1.0/cytoscape-cose-bilkent/cytoscape-cose-bilkent.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape-minimap@3.5.0/cytoscape-minimap.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape-svg@2.0.0/cytoscape-svg.min.js"></script>
+</head>
+<body>
+  <div class="app">
+    <!-- Fixed left sidebar -->
+    <aside class="sidebar">
+      <div class="pad">
+        <h2 class="title">AWS Enum</h2>
+
+        <sl-input id="ak" label="Access Key ID" placeholder="AKIA..." clearable></sl-input>
+        <sl-input id="sk" label="Secret Access Key" type="password" placeholder="••••••" clearable></sl-input>
+
+        <div class="btn-row">
+          <sl-button id="btn-enumerate" variant="primary">Enumerate</sl-button>
+          <sl-button id="btn-reset" variant="default" outline>Reset view</sl-button>
+        </div>
+
+        <sl-details summary="Legend" open>
+          <div id="legend"></div>
+        </sl-details>
+
+        <sl-details summary="Warnings">
+          <div id="warnings"></div>
+        </sl-details>
+
+        <sl-details summary="Findings">
+          <div id="findings"></div>
+        </sl-details>
+
+        <sl-details summary="Details" open>
+          <div id="details" class="details muted">Select a node or edge.</div>
+        </sl-details>
+      </div>
+    </aside>
+
+    <!-- Full-height canvas -->
+    <main class="main">
+      <!-- Inline height as extra safety in case CSS fails -->
+      <div id="cy" style="height:100vh;width:100%"></div>
+    </main>
+  </div>
+
+  <script src="/ui/app.js"></script>
+</body>
+</html>

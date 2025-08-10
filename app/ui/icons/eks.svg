@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128">
+  <rect x="2" y="2" width="124" height="124" rx="12" fill="#fff" stroke="#fca5a5" stroke-width="3"></rect>
+  <rect x="2" y="2" width="124" height="26" rx="12" fill="#fca5a5"></rect>
+  <g fill="none" stroke="#b91c1c" stroke-width="2">
+    <polygon points="64,44 90,58 90,86 64,100 38,86 38,58"></polygon>
+    <circle cx="64" cy="72" r="8" fill="#b91c1c"></circle>
+  </g>
+  <text x="64" y="114" font-family="Arial" font-size="12" text-anchor="middle" fill="#b91c1c">EKS</text>
+</svg>

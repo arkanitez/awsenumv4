@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128">
+  <rect x="2" y="2" width="124" height="124" rx="12" fill="#fff" stroke="#f97316" stroke-width="3"></rect>
+  <rect x="2" y="2" width="124" height="26" rx="12" fill="#f97316"></rect>
+  <g fill="none" stroke="#9a3412" stroke-width="2">
+    <circle cx="64" cy="74" r="20"></circle>
+    <circle cx="64" cy="74" r="6"></circle>
+    <path d="M64 48v8M64 92v8M48 74h-8M80 74h8"></path>
+  </g>
+  <text x="64" y="114" font-family="Arial" font-size="12" text-anchor="middle" fill="#9a3412">EventBridge</text>
+</svg>

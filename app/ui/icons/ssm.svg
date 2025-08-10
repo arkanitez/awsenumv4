@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128">
+  <rect x="2" y="2" width="124" height="124" rx="12" fill="#fff" stroke="#94a3b8" stroke-width="3"></rect>
+  <rect x="2" y="2" width="124" height="26" rx="12" fill="#94a3b8"></rect>
+  <g fill="none" stroke="#334155" stroke-width="2">
+    <rect x="30" y="56" width="68" height="12" rx="4"></rect>
+    <rect x="30" y="74" width="68" height="12" rx="4"></rect>
+    <rect x="30" y="92" width="40" height="12" rx="4"></rect>
+  </g>
+  <text x="64" y="114" font-family="Arial" font-size="12" text-anchor="middle" fill="#334155">SSM</text>
+</svg>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128">
+  <rect x="2" y="2" width="124" height="124" rx="12" fill="#fff" stroke="#f59e0b" stroke-width="3"></rect>
+  <rect x="2" y="2" width="124" height="26" rx="12" fill="#f59e0b"></rect>
+  <g fill="none" stroke="#92400e" stroke-width="2">
+    <path d="M28 72h40l10 10M28 92h72"></path>
+    <circle cx="78" cy="82" r="4" fill="#92400e"></circle>
+  </g>
+  <text x="64" y="114" font-family="Arial" font-size="12" text-anchor="middle" fill="#92400e">API Route</text>
+</svg>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128">
+  <rect x="2" y="2" width="124" height="124" rx="12" fill="#fff" stroke="#3b82f6" stroke-width="3"></rect>
+  <rect x="2" y="2" width="124" height="26" rx="12" fill="#3b82f6"></rect>
+  <g fill="none" stroke="#1e40af" stroke-width="2">
+    <path d="M64 50a10 10 0 0 1 10 10v8H54v-8a10 10 0 0 1 10-10z"></path>
+    <rect x="42" y="68" width="44" height="26" rx="6"></rect>
+  </g>
+  <text x="64" y="114" font-family="Arial" font-size="12" text-anchor="middle" fill="#1e40af">KMS</text>
+</svg>

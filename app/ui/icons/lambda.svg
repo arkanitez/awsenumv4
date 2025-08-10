@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128">
+  <defs><style>.t{font-family:Arial;font-weight:700}</style></defs>
+  <rect x="2" y="2" width="124" height="124" rx="12" fill="#fff" stroke="#f97316" stroke-width="3"></rect>
+  <rect x="2" y="2" width="124" height="26" rx="12" fill="#fb923c"></rect>
+  <text x="64" y="80" class="t" font-size="70" text-anchor="middle" fill="#9a3412">λ</text>
+  <text x="64" y="114" font-family="Arial" font-size="12" text-anchor="middle" fill="#9a3412">Lambda</text>
+</svg>

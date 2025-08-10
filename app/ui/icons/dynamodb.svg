@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128">
+  <rect x="2" y="2" width="124" height="124" rx="12" fill="#fff" stroke="#6366f1" stroke-width="3"></rect>
+  <rect x="2" y="2" width="124" height="26" rx="12" fill="#6366f1"></rect>
+  <g fill="none" stroke="#3730a3" stroke-width="2">
+    <rect x="30" y="52" width="68" height="40" rx="6"></rect>
+    <line x1="30" y1="68" x2="98" y2="68"></line>
+  </g>
+  <text x="64" y="114" font-family="Arial" font-size="12" text-anchor="middle" fill="#3730a3">DynamoDB</text>
+</svg>

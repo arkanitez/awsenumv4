@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128">
+  <rect x="2" y="2" width="124" height="124" rx="12" fill="#fff" stroke="#0ea5e9" stroke-width="3"></rect>
+  <rect x="2" y="2" width="124" height="26" rx="12" fill="#0ea5e9"></rect>
+  <g fill="none" stroke="#075985" stroke-width="2">
+    <path d="M24 64c16-12 40-12 56 0s40 12 56 0" transform="translate(-8 10)"></path>
+    <path d="M24 64c16-12 40-12 56 0s40 12 56 0" transform="translate(-8 -10)"></path>
+  </g>
+  <text x="64" y="114" font-family="Arial" font-size="12" text-anchor="middle" fill="#075985">Kinesis</text>
+</svg>

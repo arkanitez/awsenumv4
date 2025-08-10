@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128">
+  <rect x="2" y="2" width="124" height="124" rx="12" fill="#fff" stroke="#e5e7eb" stroke-width="2"></rect>
+  <rect x="2" y="2" width="124" height="26" rx="12" fill="#e5e7eb"></rect>
+  <g fill="none" stroke="#111827" stroke-width="2">
+    <circle cx="64" cy="74" r="22"></circle>
+    <ellipse cx="64" cy="74" rx="22" ry="10"></ellipse>
+    <ellipse cx="64" cy="74" rx="10" ry="22"></ellipse>
+  </g>
+  <text x="64" y="114" font-family="Arial" font-size="12" text-anchor="middle" fill="#111827">Internet</text>
+</svg>

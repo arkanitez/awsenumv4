@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128">
+  <rect x="2" y="2" width="124" height="124" rx="12" fill="#fff" stroke="#cbd5e1" stroke-width="2"></rect>
+  <rect x="2" y="2" width="124" height="26" rx="12" fill="#a855f7"></rect>
+  <g fill="none" stroke="#6b21a8" stroke-width="3">
+    <circle cx="64" cy="72" r="26"></circle>
+    <path d="M64 48v12m0 24v12m-24-24h12m24 0h12"></path>
+  </g>
+  <text x="64" y="112" font-family="Arial" font-size="12" text-anchor="middle" fill="#6b21a8">Security Group</text>
+</svg>
