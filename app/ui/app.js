@@ -61,13 +61,13 @@ const ICONS = {
   api_gw_v2_route: '/ui/icons/api-gateway-route.svg'
 };
 
-/** Very pale fills; vivid borders for containers */
+/** container colors: very pale fills, vivid borders */
 const CONTAINER_COLOR = {
-  vpc:          { fill: 'rgba(16, 185, 129, 0.06)',  border: '#10b981' }, // emerald
-  subnet:       { fill: 'rgba(59, 130, 246, 0.06)',  border: '#3b82f6' }, // blue
-  eks_cluster:  { fill: 'rgba(245, 158, 11, 0.06)',  border: '#f59e0b' }, // amber
-  ecs_cluster:  { fill: 'rgba(147, 51, 234, 0.06)',  border: '#9333ea' }, // purple
-  rds_cluster:  { fill: 'rgba(99, 102, 241, 0.06)',  border: '#6366f1' }  // indigo
+  vpc:          { fill: 'rgba(16, 185, 129, 0.06)',  border: '#10b981' },
+  subnet:       { fill: 'rgba(59, 130, 246, 0.06)',  border: '#3b82f6' },
+  eks_cluster:  { fill: 'rgba(245, 158, 11, 0.06)',  border: '#f59e0b' },
+  ecs_cluster:  { fill: 'rgba(147, 51, 234, 0.06)',  border: '#9333ea' },
+  rds_cluster:  { fill: 'rgba(99, 102, 241, 0.06)',  border: '#6366f1' }
 };
 
 const NODE_STYLES = [
@@ -329,7 +329,7 @@ function ensureProgressBar(){
   wrap = document.createElement('div');
   wrap.id = 'progress-wrap';
   wrap.style.position = 'absolute';
-  wrap.style.left = '360px'; // sidebar width; keep consistent with your layout
+  wrap.style.left = '360px';
   wrap.style.right = '0';
   wrap.style.top = '0';
   wrap.style.padding = '10px 16px 0 16px';
@@ -368,7 +368,6 @@ function hideProgress(){
 }
 
 function newRid(){
-  // simple UUIDv4-ish
   const buf = new Uint8Array(16);
   crypto.getRandomValues(buf);
   buf[6] = (buf[6] & 0x0f) | 0x40;
@@ -395,7 +394,7 @@ async function pollProgress(rid){
       setTimeout(hideProgress, 600);
     }
   } catch (e) {
-    // swallow transient errors
+    // ignore transient polling errors
   }
 }
 
@@ -458,7 +457,6 @@ async function handleEnumerateClick(){
     renderWarnings([String(e)]);
   } finally {
     btn.loading = false;
-    // The server will flip done=true; poller will hide bar shortly after
     setTimeout(() => pollProgress(rid), 200);
   }
 }
