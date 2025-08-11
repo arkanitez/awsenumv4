@@ -65,13 +65,12 @@ const ICONS = {
   api_gw_v2_route: '/ui/icons/api-gateway-route.svg'
 };
 
-/** Container colors (lighter fills; same vivid border) */
 const CONTAINER_COLOR = {
-  vpc: { fill: 'rgba(223, 252, 243, 0.06)', border: '#10b981' }, // emerald
-  subnet: { fill: 'rgba(228, 238, 254, 0.06)', border: '#3b82f6' }, // blue
-  eks_cluster: { fill: 'rgba(245, 158, 11, 0.06)', border: '#f59e0b' }, // amber
-  ecs_cluster: { fill: 'rgba(147, 51, 234, 0.06)', border: '#9333ea' }, // purple
-  rds_cluster: { fill: 'rgba(99, 102, 241, 0.06)', border: '#6366f1' } // indigo
+  vpc: { fill: 'rgba(223, 252, 243, 0.06)', border: '#10b981' },
+  subnet: { fill: 'rgba(228, 238, 254, 0.06)', border: '#3b82f6' },
+  eks_cluster: { fill: 'rgba(245, 158, 11, 0.06)', border: '#f59e0b' },
+  ecs_cluster: { fill: 'rgba(147, 51, 234, 0.06)', border: '#9333ea' },
+  rds_cluster: { fill: 'rgba(99, 102, 241, 0.06)', border: '#6366f1' }
 };
 
 const NODE_STYLES = [
@@ -276,7 +275,6 @@ function renderFindings(list){
 
 function iconFor(type){ return ICONS[type] || undefined; }
 
-/** Identify container nodes (parents) and mark them with classes. */
 function markContainers(elements) {
   const parentIds = new Set(
     (elements || []).filter(el => el && el.data && el.data.parent).map(el => el.data.parent)
@@ -295,7 +293,6 @@ function markContainers(elements) {
   });
 }
 
-/** Add icons to non-container nodes only (has-icon class if icon present). */
 function injectIcons(elements){
   return (elements || []).map(el => {
     if (!el || !el.data || el.group !== 'nodes') return el;
@@ -317,7 +314,6 @@ function injectIcons(elements){
   });
 }
 
-/** Remove edges that reference non-existent nodes. Also dedupe by id. */
 function sanitizeElements(elements) {
   const nodes = [], edges = [];
   for (const el of elements || []) {
@@ -376,9 +372,9 @@ function renderDetails(data){
     for (const l of links) {
       const t = String(l.title || 'download');
       const href = String(l.href || '#');
-      // ---- NEW: append current rid so backend can look up creds (no secrets in URL) ----
       const rid = window.currentRid ? String(window.currentRid) : '';
-      const hrefWithRid = rid ? (href.includes('?') ? `${href}&rid=${encodeURIComponent(rid)}` : `${href}?rid=${encodeURIComponent(rid)}`) : href;
+      const hasRid = /[?&]rid=/.test(href);
+      const hrefWithRid = (!rid || hasRid) ? href : (href.includes('?') ? `${href}&rid=${encodeURIComponent(rid)}` : `${href}?rid=${encodeURIComponent(rid)}`);
       html += `<li><a href="${hrefWithRid}" target="_blank" rel="noopener">${t}</a></li>`;
     }
     html += '</ul>';
@@ -388,7 +384,6 @@ function renderDetails(data){
   el.innerHTML = html;
 }
 
-// ---------- Progress UI ----------
 function ensureProgressBar(){
   let wrap = document.getElementById('progress-wrap');
   if (wrap) return wrap;
@@ -459,7 +454,6 @@ async function pollProgress(rid){
   } catch (e) { /* ignore transient polling errors */ }
 }
 
-// ---- Enumerate helpers ----
 async function postEnumerate(rid){
   const ak = (document.getElementById('ak')?.value || '').trim();
   const sk = (document.getElementById('sk')?.value || '').trim();
@@ -473,7 +467,6 @@ async function postEnumerate(rid){
   return { ok: res.ok, status: res.status, data };
 }
 
-// ---- Enumerate button handler ----
 async function handleEnumerateClick(){
   console.log('[ui] Enumerate clicked');
   const ak = (document.getElementById('ak')?.value || '').trim();
@@ -486,7 +479,7 @@ async function handleEnumerateClick(){
   }
 
   const rid = newRid();
-  window.currentRid = rid;         // <-- NEW: remember rid for download links
+  window.currentRid = rid;
   showProgress();
   if (progressTimer) clearInterval(progressTimer);
   progressTimer = setInterval(() => pollProgress(rid), 500);
