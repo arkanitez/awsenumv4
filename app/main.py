@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse, parse_qsl, urlencode, urlunparse
 from threading import Lock
 
 import boto3
@@ -27,6 +27,7 @@ try:
 except Exception:
     def derive_reachability(g: Graph):
         return []
+
 try:
     from .findings import analyze as analyze_findings
 except Exception:
@@ -258,6 +259,7 @@ async def download_cloudfront_config(
     sk: Optional[str] = Query(None),
     st: Optional[str] = Query(None),
 ):
+    # CloudFront is global; use us-east-1 for control-plane
     sess = build_session(ak, sk, st, "us-east-1")
     cf = sess.client('cloudfront', config=_boto_cfg())
     try:
@@ -313,6 +315,99 @@ SERVICES_ORDER: List[Tuple[str, Any]] = [
     ('eks', eks.enumerate),
     ('ecs', ecs.enumerate),
 ]
+
+def _inject_creds_into_existing_links(elements: List[Dict[str, Any]], ak: Optional[str], sk: Optional[str], st: Optional[str]) -> None:
+    """
+    Some enumerators may already add links like '/download/...'.
+    Ensure those links carry ak/sk/st so the endpoints can auth.
+    """
+    if not ak and not sk and not st:
+        return
+    for el in elements:
+        if not isinstance(el, dict) or el.get("group") != "nodes":
+            continue
+        details = (el.get("data") or {}).get("details") or {}
+        links = details.get("links")
+        if not isinstance(links, list):
+            continue
+        for i, link in enumerate(links):
+            href = link.get("href")
+            if not isinstance(href, str) or not href.startswith("/download/"):
+                continue
+            # If any cred already present, skip
+            if ("ak=" in href) or ("sk=" in href) or ("st=" in href):
+                continue
+            # append creds
+            u = urlparse(href)
+            q = dict(parse_qsl(u.query))
+            if ak: q["ak"] = ak
+            if sk: q["sk"] = sk
+            if st: q["st"] = st
+            new_href = urlunparse((u.scheme, u.netloc, u.path, u.params, urlencode(q), u.fragment))
+            link["href"] = new_href
+
+def _augment_download_links(elements: List[Dict[str, Any]], ak: Optional[str], sk: Optional[str], st: Optional[str]) -> None:
+    """Add our own standard download links and include creds in qs."""
+    for el in elements:
+        if not isinstance(el, dict) or el.get("group") != "nodes":
+            continue
+        data = el.get("data") or {}
+        ntype = data.get("type")
+        region = data.get("region") or DEFAULT_REGION
+        details = data.setdefault("details", {})
+        links = details.setdefault("links", [])
+
+        def add(title: str, href: str, download: bool = True):
+            # always inject creds here
+            if href.startswith("/download/"):
+                if "?" in href:
+                    href += f"&ak={quote_plus(ak or '')}&sk={quote_plus(sk or '')}"
+                    if st: href += f"&st={quote_plus(st)}"
+                else:
+                    href += f"?ak={quote_plus(ak or '')}&sk={quote_plus(sk or '')}"
+                    if st: href += f"&st={quote_plus(st)}"
+            links.append({"title": title, "href": href, "download": download})
+
+        arn = details.get("arn")
+        if arn and isinstance(arn, str):
+            add("Open in AWS Console", f"/download/console?arn={quote_plus(arn)}")
+
+        if ntype == "lambda":
+            fn_arn = details.get("arn")
+            fn_name = details.get("name") or data.get("label")
+            if fn_arn or fn_name:
+                qs = f"region={quote_plus(region)}"
+                if fn_arn: qs += f"&functionArn={quote_plus(fn_arn)}"
+                if fn_name: qs += f"&functionName={quote_plus(fn_name)}"
+                add("Download Lambda code (zip)", f"/download/lambda-code?{qs}")
+
+        if ntype == "lambda_layer":
+            layer_arn = details.get("arn") or data.get("label")
+            version = details.get("version") or details.get("Version")
+            if layer_arn and version:
+                qs = f"region={quote_plus(region)}&layerArn={quote_plus(layer_arn)}&version={quote_plus(str(version))}"
+                add("Download Lambda layer (zip)", f"/download/lambda-layer?{qs}")
+
+        if ntype == "api_gw_v2":
+            api_id = details.get("api_id") or _id_last(data.get("id") or "")
+            if api_id:
+                qs = f"region={quote_plus(region)}&apiId={quote_plus(api_id)}"
+                add("Download API Gateway (HTTP/WebSocket) export (json)", f"/download/apigwv2-export?{qs}")
+
+        if ntype == "dynamodb_table":
+            tab_arn = details.get("arn")
+            tab_name = details.get("name") or data.get("label")
+            if tab_arn or tab_name:
+                qs = f"region={quote_plus(region)}"
+                if tab_arn: qs += f"&tableArn={quote_plus(tab_arn)}"
+                if tab_name: qs += f"&tableName={quote_plus(tab_name)}"
+                add("Download DynamoDB table (describe json)", f"/download/dynamodb-table?{qs}")
+
+        if ntype == "cloudfront":
+            dist_id = details.get("id") or _id_last(data.get("id") or "")
+            if dist_id:
+                qs = f"id={quote_plus(dist_id)}"
+                add("Download CloudFront distribution config (json)", f"/download/cloudfront-config?{qs}")
 
 def _enumerate_one_region(
     sess: boto3.Session,
@@ -381,65 +476,11 @@ def _list_enabled_regions(sess: boto3.Session) -> List[str]:
             'ap-south-1','ap-southeast-1','ap-southeast-2','ap-northeast-1'
         ]
 
-def _augment_download_links(elements: List[Dict[str, Any]], ak: Optional[str], sk: Optional[str], st: Optional[str]) -> None:
-    for el in elements:
-        if not isinstance(el, dict) or el.get("group") != "nodes":
-            continue
-        data = el.get("data") or {}
-        ntype = data.get("type")
-        region = data.get("region") or DEFAULT_REGION
-        details = data.setdefault("details", {})
-        links = details.setdefault("links", [])
-
-        def add(title: str, href: str, download: bool = True):
-            links.append({"title": title, "href": href, "download": download})
-
-        arn = details.get("arn")
-        if arn and isinstance(arn, str):
-            add("Open in AWS Console", f"/download/console?arn={quote_plus(arn)}")
-
-        if ntype == "lambda":
-            fn_arn = details.get("arn")
-            fn_name = details.get("name") or data.get("label")
-            if fn_arn or fn_name:
-                qs = f"region={quote_plus(region)}"
-                if fn_arn: qs += f"&functionArn={quote_plus(fn_arn)}"
-                if fn_name: qs += f"&functionName={quote_plus(fn_name)}"
-                add("Download Lambda code (zip)", f"/download/lambda-code?{qs}")
-
-        if ntype == "lambda_layer":
-            layer_arn = details.get("arn") or data.get("label")
-            version = details.get("version") or details.get("Version")
-            if layer_arn and version:
-                qs = f"region={quote_plus(region)}&layerArn={quote_plus(layer_arn)}&version={quote_plus(str(version))}"
-                add("Download Lambda layer (zip)", f"/download/lambda-layer?{qs}")
-
-        if ntype == "api_gw_v2":
-            api_id = details.get("api_id") or _id_last(data.get("id") or "")
-            if api_id:
-                qs = f"region={quote_plus(region)}&apiId={quote_plus(api_id)}"
-                add("Download API Gateway (HTTP/WebSocket) export (json)", f"/download/apigwv2-export?{qs}")
-
-        if ntype == "dynamodb_table":
-            tab_arn = details.get("arn")
-            tab_name = details.get("name") or data.get("label")
-            if tab_arn or tab_name:
-                qs = f"region={quote_plus(region)}"
-                if tab_arn: qs += f"&tableArn={quote_plus(tab_arn)}"
-                if tab_name: qs += f"&tableName={quote_plus(tab_name)}"
-                add("Download DynamoDB table (describe json)", f"/download/dynamodb-table?{qs}")
-
-        if ntype == "cloudfront":
-            dist_id = details.get("id") or _id_last(data.get("id") or "")
-            if dist_id:
-                qs = f"id={quote_plus(dist_id)}"
-                add("Download CloudFront distribution config (json)", f"/download/cloudfront-config?{qs}")
-
 @app.post('/enumerate')
 async def enumerate_api(req: Request):
     """
-    IMPORTANT: Run the heavy, blocking boto3 enumeration in a threadpool so the event
-    loop can keep serving /progress. This is why the progress bar was gray before.
+    Run the heavy boto3 enumeration in a threadpool so the event loop
+    can keep serving /progress updates.
     """
     payload = await req.json()
     ak = (payload.get('access_key_id') or '').strip() or None
@@ -467,7 +508,6 @@ async def enumerate_api(req: Request):
 
         elements, w_reg, findings = _enumerate_one_region(sess, account_id, region, progress_rid=rid)
         warnings.extend(w_reg)
-
         scanned_regions = [region]
 
         # Optional multi-region fallback
@@ -486,7 +526,9 @@ async def enumerate_api(req: Request):
                         findings.append(f)
                 scanned_regions.append(r)
 
-        # Add download links
+        # 1) If other enumerators already put /download links, ensure they include creds
+        _inject_creds_into_existing_links(elements, ak, sk, st)
+        # 2) Add our standard downloads; they will always include creds in qs
         _augment_download_links(elements, ak, sk, st)
 
         _progress_done(rid)
@@ -500,6 +542,5 @@ async def enumerate_api(req: Request):
             'scanned_regions': scanned_regions
         }
 
-    # Offload the blocking work
     result = await run_in_threadpool(do_enumeration)
     return json_response(result)
