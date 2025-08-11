@@ -4,18 +4,21 @@ window.addEventListener('error', e => {
   console.error('[ui] window error:', e.error || e.message || e);
   const w = document.getElementById('warnings');
   if (w) {
-    const a = document.createElement('sl-alert'); a.variant='warning'; a.closable=true;
+    const a = document.createElement('sl-alert');
+    a.variant='warning'; a.closable=true;
     a.innerText = String(e.error || e.message || e);
     w.appendChild(a);
     const det = [...document.querySelectorAll('sl-details')].find(d => d.getAttribute('summary') === 'Warnings');
     if (det) det.setAttribute('open', '');
   }
 });
+
 window.addEventListener('unhandledrejection', e => {
   console.error('[ui] unhandledrejection:', e.reason);
   const w = document.getElementById('warnings');
   if (w) {
-    const a = document.createElement('sl-alert'); a.variant='warning'; a.closable=true;
+    const a = document.createElement('sl-alert');
+    a.variant='warning'; a.closable=true;
     a.innerText = String(e.reason);
     w.appendChild(a);
     const det = [...document.querySelectorAll('sl-details')].find(d => d.getAttribute('summary') === 'Warnings');
@@ -25,6 +28,7 @@ window.addEventListener('unhandledrejection', e => {
 
 let cy;
 let progressTimer = null;
+window.currentRid = null;
 
 const ICONS = {
   vpc: '/ui/icons/vpc.svg',
@@ -63,11 +67,11 @@ const ICONS = {
 
 /** Container colors (lighter fills; same vivid border) */
 const CONTAINER_COLOR = {
-  vpc:          { fill: 'rgba(223, 252, 243, 0.06)',  border: '#10b981' }, // emerald
-  subnet:       { fill: 'rgba(228, 238, 254, 0.06)',  border: '#3b82f6' }, // blue
-  eks_cluster:  { fill: 'rgba(245, 158, 11, 0.06)',  border: '#f59e0b' }, // amber
-  ecs_cluster:  { fill: 'rgba(147, 51, 234, 0.06)',  border: '#9333ea' }, // purple
-  rds_cluster:  { fill: 'rgba(99, 102, 241, 0.06)',  border: '#6366f1' }  // indigo
+  vpc: { fill: 'rgba(223, 252, 243, 0.06)', border: '#10b981' }, // emerald
+  subnet: { fill: 'rgba(228, 238, 254, 0.06)', border: '#3b82f6' }, // blue
+  eks_cluster: { fill: 'rgba(245, 158, 11, 0.06)', border: '#f59e0b' }, // amber
+  ecs_cluster: { fill: 'rgba(147, 51, 234, 0.06)', border: '#9333ea' }, // purple
+  rds_cluster: { fill: 'rgba(99, 102, 241, 0.06)', border: '#6366f1' } // indigo
 };
 
 const NODE_STYLES = [
@@ -109,22 +113,64 @@ const NODE_STYLES = [
       'z-index-compare': 'manual',
       'z-index': 0
   }},
-  { selector: 'node.container-vpc',         style: { 'background-color': CONTAINER_COLOR.vpc.fill,        'border-color': CONTAINER_COLOR.vpc.border } },
-  { selector: 'node.container-subnet',      style: { 'background-color': CONTAINER_COLOR.subnet.fill,     'border-color': CONTAINER_COLOR.subnet.border } },
-  { selector: 'node.container-eks_cluster', style: { 'background-color': CONTAINER_COLOR.eks_cluster.fill,'border-color': CONTAINER_COLOR.eks_cluster.border } },
-  { selector: 'node.container-ecs_cluster', style: { 'background-color': CONTAINER_COLOR.ecs_cluster.fill,'border-color': CONTAINER_COLOR.ecs_cluster.border } },
-  { selector: 'node.container-rds_cluster', style: { 'background-color': CONTAINER_COLOR.rds_cluster.fill,'border-color': CONTAINER_COLOR.rds_cluster.border } },
-  { selector: 'node:selected', style: { 'border-color': '#111827', 'border-width': 3 } },
+  { selector: 'node.container-vpc', style: {
+      'background-color': CONTAINER_COLOR.vpc.fill,
+      'border-color': CONTAINER_COLOR.vpc.border
+  }},
+  { selector: 'node.container-subnet', style: {
+      'background-color': CONTAINER_COLOR.subnet.fill,
+      'border-color': CONTAINER_COLOR.subnet.border
+  }},
+  { selector: 'node.container-eks_cluster', style: {
+      'background-color': CONTAINER_COLOR.eks_cluster.fill,
+      'border-color': CONTAINER_COLOR.eks_cluster.border
+  }},
+  { selector: 'node.container-ecs_cluster', style: {
+      'background-color': CONTAINER_COLOR.ecs_cluster.fill,
+      'border-color': CONTAINER_COLOR.ecs_cluster.border
+  }},
+  { selector: 'node.container-rds_cluster', style: {
+      'background-color': CONTAINER_COLOR.rds_cluster.fill,
+      'border-color': CONTAINER_COLOR.rds_cluster.border
+  }},
+  { selector: 'node:selected', style: {
+      'border-color': '#111827',
+      'border-width': 3
+  }},
 ];
 
 const EDGE_STYLES = [
-  { selector: 'edge', style: { 'curve-style': 'bezier', 'target-arrow-shape': 'triangle', 'arrow-scale': 0.9, 'width': 2, 'label': 'data(label)', 'font-size': 9, 'color':'#111827' } },
-  { selector: 'edge[category = "resource"]', style: { 'line-color': '#2563eb', 'target-arrow-color': '#2563eb' } },
-  { selector: 'edge[category = "network"]', style: { 'line-color': '#f97316', 'target-arrow-color': '#f97316' } },
-  { selector: 'edge[category = "data"]', style: { 'line-color': '#0ea5e9', 'target-arrow-color': '#0ea5e9', 'line-style': 'dotted' } },
-  { selector: 'edge[derived = "true"]', style: { 'line-style': 'dashed' } },
-  { selector: 'edge[type = "attach"], edge[type = "assoc"]', style: { 'opacity': 0.45 } },
-  { selector: 'edge:selected', style: { 'width': 3 } },
+  { selector: 'edge', style: {
+      'curve-style': 'bezier',
+      'target-arrow-shape': 'triangle',
+      'arrow-scale': 0.9,
+      'width': 2,
+      'label': 'data(label)',
+      'font-size': 9,
+      'color':'#111827'
+  }},
+  { selector: 'edge[category = "resource"]', style: {
+      'line-color': '#2563eb',
+      'target-arrow-color': '#2563eb'
+  }},
+  { selector: 'edge[category = "network"]', style: {
+      'line-color': '#f97316',
+      'target-arrow-color': '#f97316'
+  }},
+  { selector: 'edge[category = "data"]', style: {
+      'line-color': '#0ea5e9',
+      'target-arrow-color': '#0ea5e9',
+      'line-style': 'dotted'
+  }},
+  { selector: 'edge[derived = "true"]', style: {
+      'line-style': 'dashed'
+  }},
+  { selector: 'edge[type = "attach"], edge[type = "assoc"]', style: {
+      'opacity': 0.45
+  }},
+  { selector: 'edge:selected', style: {
+      'width': 3
+  }},
 ];
 
 function registerCytoscapePlugins() {
@@ -149,13 +195,11 @@ function initCySafe() {
     wheelSensitivity: 0.1,
     pixelRatio: 1,
     boxSelectionEnabled: false,
-    style: [
-      ...NODE_STYLES,
-      ...EDGE_STYLES,
-    ],
+    style: [ ...NODE_STYLES, ...EDGE_STYLES ],
     layout: {
       name: (window.cytoscapeCoseBilkent ? 'cose-bilkent' : 'breadthfirst'),
-      quality: 'default', animate: false, nodeRepulsion: 80000, idealEdgeLength: 220, gravity: 0.25, numIter: 1200, tile: true
+      quality: 'default', animate: false,
+      nodeRepulsion: 80000, idealEdgeLength: 220, gravity: 0.25, numIter: 1200, tile: true
     },
   });
 
@@ -166,7 +210,7 @@ function initCySafe() {
     renderDetails(d);
   });
   cy.on('unselect', () => {
-    document.getElementById('details').innerHTML = '<div class="muted">Select a node or edge.</div>';
+    document.getElementById('details').innerHTML = '<p>Select a node or edge.</p>';
   });
 
   const resetBtn = document.getElementById('btn-reset');
@@ -185,20 +229,31 @@ function legend(){
     ['Data/invoke edges', '#0ea5e9 (dotted)'],
     ['Derived', 'dashed']
   ];
-  const el = document.getElementById('legend'); el.innerHTML = '';
+  const el = document.getElementById('legend');
+  el.innerHTML = '';
   for (const [name, color] of items){
-    const row = document.createElement('div'); row.className = 'legend-row';
-    const sw = document.createElement('span'); sw.className = 'swatch';
-    if (color === 'dashed'){ sw.style.border = '1px dashed #9ca3af'; sw.style.background='transparent'; }
-    else { sw.style.background = color.split(' ')[0]; }
-    row.appendChild(sw); row.appendChild(document.createTextNode(name)); el.appendChild(row);
+    const row = document.createElement('div');
+    row.className = 'legend-row';
+    const sw = document.createElement('span');
+    sw.className = 'swatch';
+    if (color === 'dashed'){
+      sw.style.border = '1px dashed #9ca3af';
+      sw.style.background='transparent';
+    } else {
+      sw.style.background = color.split(' ')[0];
+    }
+    row.appendChild(sw);
+    row.appendChild(document.createTextNode(name));
+    el.appendChild(row);
   }
 }
 
 function renderWarnings(list){
-  const el = document.getElementById('warnings'); el.innerHTML = '';
+  const el = document.getElementById('warnings');
+  el.innerHTML = '';
   (list||[]).forEach(w => {
-    const a = document.createElement('sl-alert'); a.variant='warning'; a.closable=true;
+    const a = document.createElement('sl-alert');
+    a.variant='warning'; a.closable=true;
     a.innerText = String(w);
     el.appendChild(a);
   });
@@ -209,9 +264,11 @@ function renderWarnings(list){
 }
 
 function renderFindings(list){
-  const el = document.getElementById('findings'); el.innerHTML = '';
+  const el = document.getElementById('findings');
+  el.innerHTML = '';
   (list||[]).forEach(f => {
-    const a = document.createElement('sl-alert'); a.variant = (f.severity||'info').toLowerCase(); a.closable=true;
+    const a = document.createElement('sl-alert');
+    a.variant = (f.severity||'info').toLowerCase(); a.closable=true;
     a.innerText = `[${f.severity}] ${f.title}${f.detail?': '+f.detail:''}`;
     el.appendChild(a);
   });
@@ -222,24 +279,18 @@ function iconFor(type){ return ICONS[type] || undefined; }
 /** Identify container nodes (parents) and mark them with classes. */
 function markContainers(elements) {
   const parentIds = new Set(
-    (elements || [])
-      .filter(el => el && el.data && el.data.parent)
-      .map(el => el.data.parent)
+    (elements || []).filter(el => el && el.data && el.data.parent).map(el => el.data.parent)
   );
-
   return (elements || []).map(el => {
     if (!el || !el.data || el.group !== 'nodes') return el;
     const id = el.data.id;
     if (!id || !parentIds.has(id)) return el;
-
     const t = (el.data.type || '').trim();
     const cls = (el.classes || '').trim();
     const containerCls = ['container', t ? `container-${t}` : null].filter(Boolean).join(' ');
     el.classes = (cls ? cls + ' ' : '') + containerCls;
-
     if (el.data.icon) delete el.data.icon;
     el.classes = el.classes.replace(/\bhas-icon\b/g, '').trim();
-
     return el;
   });
 }
@@ -249,7 +300,10 @@ function injectIcons(elements){
   return (elements || []).map(el => {
     if (!el || !el.data || el.group !== 'nodes') return el;
     const isContainer = /\bcontainer\b/.test(el.classes || '');
-    if (isContainer) { if (el.data.icon) delete el.data.icon; return el; }
+    if (isContainer) {
+      if (el.data.icon) delete el.data.icon;
+      return el;
+    }
     const t = el.data.type;
     const icon = iconFor(t);
     if (icon) {
@@ -271,6 +325,7 @@ function sanitizeElements(elements) {
     const isEdge = !!(el.data.source || el.data.target) || el.group === 'edges';
     if (isEdge) edges.push(el); else nodes.push(el);
   }
+
   const nodeMap = new Map();
   for (const n of nodes) {
     const id = n?.data?.id;
@@ -278,21 +333,27 @@ function sanitizeElements(elements) {
     nodeMap.set(id, n);
   }
   const nodeIds = new Set(nodeMap.keys());
+
   const edgeMap = new Map();
   let dropped = 0;
   for (const e of edges) {
     const d = e.data || {};
-    if (!d.source || !d.target || !nodeIds.has(d.source) || !nodeIds.has(d.target)) { dropped++; continue; }
+    if (!d.source || !d.target || !nodeIds.has(d.source) || !nodeIds.has(d.target)) {
+      dropped++;
+      continue;
+    }
     const eid = d.id || `${d.source}->${d.target}`;
     if (!edgeMap.has(eid)) edgeMap.set(eid, e);
   }
+
   const cleaned = [...nodeMap.values(), ...edgeMap.values()];
   if (dropped > 0) {
     console.warn('[ui] filtered invalid edges:', dropped);
     const w = document.getElementById('warnings');
     if (w) {
-      const a = document.createElement('sl-alert'); a.variant='warning'; a.closable=true;
-      a.innerText = `Filtered ${dropped} edges referencing missing nodes. Check ID consistency.`;
+      const a = document.createElement('sl-alert');
+      a.variant='warning'; a.closable=true;
+      a.innerText = `Filtered ${dropped} edges referencing missing nodes.\nCheck ID consistency.`;
       w.appendChild(a);
       const det = [...document.querySelectorAll('sl-details')].find(d => d.getAttribute('summary') === 'Warnings');
       if (det) det.setAttribute('open', '');
@@ -309,21 +370,25 @@ function renderDetails(data){
   const el = document.getElementById('details');
   const links = (data?.details && Array.isArray(data.details.links)) ? data.details.links : [];
   let html = '';
+
   if (links.length) {
-    html += '<div style="margin-bottom:8px"><strong>Downloads</strong><ul style="margin:6px 0 10px 18px">';
+    html += '<h3>Downloads</h3><ul>';
     for (const l of links) {
       const t = String(l.title || 'download');
       const href = String(l.href || '#');
-      html += `<li><a href="${href}" target="_blank" rel="noopener">${t}</a></li>`;
+      // ---- NEW: append current rid so backend can look up creds (no secrets in URL) ----
+      const rid = window.currentRid ? String(window.currentRid) : '';
+      const hrefWithRid = rid ? (href.includes('?') ? `${href}&rid=${encodeURIComponent(rid)}` : `${href}?rid=${encodeURIComponent(rid)}`) : href;
+      html += `<li><a href="${hrefWithRid}" target="_blank" rel="noopener">${t}</a></li>`;
     }
-    html += '</ul></div>';
+    html += '</ul>';
   }
+
   html += `<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
   el.innerHTML = html;
 }
 
 // ---------- Progress UI ----------
-
 function ensureProgressBar(){
   let wrap = document.getElementById('progress-wrap');
   if (wrap) return wrap;
@@ -336,18 +401,15 @@ function ensureProgressBar(){
   wrap.style.padding = '10px 16px 0 16px';
   wrap.style.pointerEvents = 'none';
   wrap.style.zIndex = '9999';
-
   const inner = document.createElement('div');
   inner.style.maxWidth = '800px';
   inner.style.margin = '0 auto';
   inner.style.pointerEvents = 'auto';
-
   const bar = document.createElement('sl-progress-bar');
   bar.id = 'progress-bar';
   bar.style.width = '100%';
   bar.value = 0;
   bar.setAttribute('label', 'Starting…');
-
   inner.appendChild(bar);
   wrap.appendChild(inner);
   document.body.appendChild(wrap);
@@ -394,9 +456,7 @@ async function pollProgress(rid){
       bar.setAttribute('label', `Completed (${total}/${total})`);
       setTimeout(hideProgress, 600);
     }
-  } catch (e) {
-    // ignore transient polling errors
-  }
+  } catch (e) { /* ignore transient polling errors */ }
 }
 
 // ---- Enumerate helpers ----
@@ -404,9 +464,9 @@ async function postEnumerate(rid){
   const ak = (document.getElementById('ak')?.value || '').trim();
   const sk = (document.getElementById('sk')?.value || '').trim();
   const payload = { access_key_id: ak, secret_access_key: sk, rid };
-
   const res = await fetch('/enumerate', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload)
   });
   const data = await res.json().catch(() => null);
@@ -419,18 +479,25 @@ async function handleEnumerateClick(){
   const ak = (document.getElementById('ak')?.value || '').trim();
   const sk = (document.getElementById('sk')?.value || '').trim();
   const btn = document.getElementById('btn-enumerate');
-  if (!ak || !sk) { renderWarnings(['Please provide both Access Key ID and Secret Access Key.']); return; }
+
+  if (!ak || !sk) {
+    renderWarnings(['Please provide both Access Key ID and Secret Access Key.']);
+    return;
+  }
 
   const rid = newRid();
+  window.currentRid = rid;         // <-- NEW: remember rid for download links
   showProgress();
   if (progressTimer) clearInterval(progressTimer);
   progressTimer = setInterval(() => pollProgress(rid), 500);
-
   btn.loading = true;
+
   try {
     const { ok, status, data } = await postEnumerate(rid);
-    if (!ok) { renderWarnings([data?.error || `Request failed with ${status}`]); return; }
-
+    if (!ok) {
+      renderWarnings([data?.error || `Request failed with ${status}`]);
+      return;
+    }
     let elements = data?.elements || [];
     console.log('[ui] elements count:', elements.length);
     window.lastElements = elements;
@@ -445,15 +512,17 @@ async function handleEnumerateClick(){
 
     const layout = cy.layout({
       name: (window.cytoscapeCoseBilkent ? 'cose-bilkent' : 'breadthfirst'),
-      quality: 'default', animate:false, nodeRepulsion:80000, idealEdgeLength:220, gravity:0.25, numIter:1200, tile:true
+      quality: 'default', animate:false,
+      nodeRepulsion:80000, idealEdgeLength:220, gravity:0.25, numIter:1200, tile:true
     });
     layout.run();
     layout.on('layoutstop', () => { cy.fit(null, 60); });
     setTimeout(() => { cy.fit(null, 60); }, 120);
 
-    console.log('[ui] nodes:', cy.nodes().size(), 'edges:', cy.edges().size(),
-                'rect:', cy.container().getBoundingClientRect());
-    renderFindings(data.findings || []); renderWarnings(data.warnings || []);
+    console.log('[ui] nodes:', cy.nodes().size(), 'edges:', cy.edges().size(), 'rect:', cy.container().getBoundingClientRect());
+
+    renderFindings(data.findings || []);
+    renderWarnings(data.warnings || []);
   } catch (e){
     renderWarnings([String(e)]);
   } finally {
@@ -465,17 +534,25 @@ async function handleEnumerateClick(){
 function bindUI(){
   console.log('[ui] bindUI');
   const btn = document.getElementById('btn-enumerate');
-  if (!btn) { console.error('[ui] enumerate button not found'); return; }
-  Promise.all([ customElements.whenDefined('sl-button'), customElements.whenDefined('sl-input'), customElements.whenDefined('sl-progress-bar') ])
-    .then(() => {
-      console.log('[ui] custom elements ready; binding click handlers');
-      btn.addEventListener('click', handleEnumerateClick);
-      btn.addEventListener('sl-click', handleEnumerateClick);
-      ['ak','sk'].forEach(id => {
-        const el = document.getElementById(id);
-        el.addEventListener('keydown', e => { if (e.key === 'Enter') handleEnumerateClick(); });
-      });
-    }).catch(() => { btn.addEventListener('click', handleEnumerateClick); });
+  if (!btn) {
+    console.error('[ui] enumerate button not found');
+    return;
+  }
+  Promise.all([
+    customElements.whenDefined('sl-button'),
+    customElements.whenDefined('sl-input'),
+    customElements.whenDefined('sl-progress-bar')
+  ]).then(() => {
+    console.log('[ui] custom elements ready; binding click handlers');
+    btn.addEventListener('click', handleEnumerateClick);
+    btn.addEventListener('sl-click', handleEnumerateClick);
+    ['ak','sk'].forEach(id => {
+      const el = document.getElementById(id);
+      el.addEventListener('keydown', e => { if (e.key === 'Enter') handleEnumerateClick(); });
+    });
+  }).catch(() => {
+    btn.addEventListener('click', handleEnumerateClick);
+  });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
