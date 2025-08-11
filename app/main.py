@@ -19,7 +19,7 @@ from .graph import Graph
 from .enumerators import (
     ec2,
     elbv2,
-    lambda_ as enum_lambda,
+    lambda as enum_lambda,   # note: module is "lambda.py"
     apigwv2,
     s3,
     sqs_sns,
@@ -64,7 +64,6 @@ def build_session(ak: Optional[str], sk: Optional[str], st: Optional[str], regio
             aws_session_token=st or None,
             region_name=region,
         )
-    # Fallback to default chain only if provided creds absent (used by advanced users)
     return boto3.Session(region_name=region)
 
 def _safe_get(d: Dict[str, Any], *path: str) -> Optional[Any]:
@@ -105,10 +104,7 @@ SESSION_TTL_SECONDS = int(os.environ.get("SESSION_TTL_SECONDS", "1800"))  # 30 m
 
 def _put_session(rid: str, ak: str, sk: str, st: Optional[str], region: str) -> None:
     with _SESS_LOCK:
-        _SESSIONS[rid] = {
-            "ak": ak, "sk": sk, "st": st, "region": region,
-            "ts": time.time()
-        }
+        _SESSIONS[rid] = {"ak": ak, "sk": sk, "st": st, "region": region, "ts": time.time()}
 
 def _get_session(rid: Optional[str]) -> Optional[Dict[str, Any]]:
     if not rid:
@@ -118,7 +114,6 @@ def _get_session(rid: Optional[str]) -> Optional[Dict[str, Any]]:
         if not entry:
             return None
         if (time.time() - float(entry.get("ts", 0))) > SESSION_TTL_SECONDS:
-            # Expired – drop it
             _SESSIONS.pop(rid, None)
             return None
         return entry
@@ -138,7 +133,6 @@ def _session_or_query_session(
             sess_entry.get("st"),
             region or sess_entry["region"] or DEFAULT_REGION,
         )
-    # Fallback to explicit query creds (still supported)
     return build_session(ak, sk, st, region or DEFAULT_REGION)
 
 
@@ -200,15 +194,12 @@ async def progress_api(rid: str = Query(...)):
     with _PROGRESS_LOCK:
         state = _PROGRESS.get(rid)
         if not state:
-            return json_response(
-                {"rid": rid, "total": 1, "current": 0, "stage": "Unknown", "done": False}
-            )
+            return json_response({"rid": rid, "total": 1, "current": 0, "stage": "Unknown", "done": False})
         return json_response(state)
 
 
 # --------------------------
-# Download endpoints
-# (now accept rid; use stored creds)
+# Download endpoints (accept rid; use stored creds)
 # --------------------------
 @app.get("/download/lambda-code")
 async def download_lambda_code(
@@ -354,8 +345,7 @@ async def download_cloudfront_config(
     sk: Optional[str] = Query(None),
     st: Optional[str] = Query(None),
 ):
-    # CloudFront is us-east-1 control-plane
-    sess = _session_or_query_session(rid, ak, sk, st, "us-east-1")
+    sess = _session_or_query_session(rid, ak, sk, st, "us-east-1")  # CloudFront control-plane
     cf = sess.client("cloudfront", config=_boto_cfg())
     try:
         out = cf.get_distribution_config(Id=id)
@@ -439,7 +429,6 @@ def _enumerate_one_region(
         finally:
             _progress_tick(progress_rid or "", f"{region}: {name} ✓")
 
-    # Derived edges (if module present)
     try:
         _progress_stage(progress_rid or "", f"{region}: reachability")
         for e in derive_reachability(g):
@@ -451,7 +440,6 @@ def _enumerate_one_region(
 
     elements: List[Dict[str, Any]] = list(g.elements())
 
-    # Findings (if module present)
     try:
         _progress_stage(progress_rid or "", f"{region}: findings")
         findings = analyze_findings(elements)
@@ -493,10 +481,6 @@ def _list_enabled_regions(sess: boto3.Session) -> List[str]:
         ]
 
 def _augment_download_links(elements: List[Dict[str, Any]], rid: Optional[str]) -> None:
-    """
-    Injects download/deeplink URLs into node details; now includes the current rid
-    so the backend can fetch stored credentials.
-    """
     for el in elements:
         if not isinstance(el, dict) or el.get("group") != "nodes":
             continue
@@ -508,7 +492,6 @@ def _augment_download_links(elements: List[Dict[str, Any]], rid: Optional[str]) 
         links = details.setdefault("links", [])
 
         def add(title: str, href: str, download: bool = True):
-            # We do NOT include secrets in URLs. Only the rid travels.
             if rid:
                 href = f"{href}&rid={quote_plus(rid)}" if ("?" in href) else f"{href}?rid={quote_plus(rid)}"
             links.append({"title": title, "href": href, "download": download})
@@ -560,7 +543,16 @@ async def enumerate_api(req: Request):
     Runs heavy boto3 enumeration in a threadpool so the event loop stays responsive for /progress.
     Also seeds a short-lived credential session keyed by 'rid' (used later by download endpoints).
     """
-    body = await req.json()
+    # Tolerant body parsing (JSON is expected; fall back to form if needed)
+    try:
+        if (req.headers.get("content-type") or "").lower().startswith("application/json"):
+            body = await req.json()
+        else:
+            form = await req.form()
+            body = dict(form.items())
+    except Exception:
+        body = {}
+
     ak = (body.get("access_key_id") or "").strip()
     sk = (body.get("secret_access_key") or "").strip()
     st = (body.get("session_token") or None) or None
@@ -570,42 +562,38 @@ async def enumerate_api(req: Request):
     if not ak or not sk:
         return JSONResponse({"error": "Both access_key_id and secret_access_key are required."}, status_code=400)
 
-    # Seed session memory
     _put_session(rid, ak, sk, st, region)
     _progress_init(rid, total=len(SERVICES_ORDER) + 3, region=region)
 
-    async def _work():
-        def _do():
-            sess = build_session(ak, sk, st, region)
-            sts = sess.client("sts", config=_boto_cfg())
-            acct = sts.get_caller_identity()["Account"]
+    def _do():
+        sess = build_session(ak, sk, st, region)
+        sts = sess.client("sts", config=_boto_cfg())
+        acct = sts.get_caller_identity()["Account"]
 
-            # Get enabled regions and size progress
-            regions = _list_enabled_regions(sess)
-            if regions and region not in regions:
-                regions = [region] + regions  # ensure requested/default region included first
-            add_total = (len(SERVICES_ORDER) + 3) * max(0, len(regions) - 1)
-            _progress_add_total(rid, add_total)
+        regions = _list_enabled_regions(sess)
+        if regions and region not in regions:
+            regions = [region] + regions
+        add_total = (len(SERVICES_ORDER) + 3) * max(0, len(regions) - 1)
+        _progress_add_total(rid, add_total)
 
-            all_elements: List[Dict[str, Any]] = []
-            all_warnings: List[str] = []
-            all_findings: List[Dict[str, Any]] = []
+        all_elements: List[Dict[str, Any]] = []
+        all_warnings: List[str] = []
+        all_findings: List[Dict[str, Any]] = []
 
-            for r in regions:
-                rsess = build_session(ak, sk, st, r)
-                els, warns, finds = _enumerate_one_region(rsess, acct, r, progress_rid=rid)
-                all_elements.extend(els)
-                all_warnings.extend(warns)
-                all_findings.extend(finds)
+        for r in regions:
+            rsess = build_session(ak, sk, st, r)
+            els, warns, finds = _enumerate_one_region(rsess, acct, r, progress_rid=rid)
+            all_elements.extend(els)
+            all_warnings.extend(warns)
+            all_findings.extend(finds)
 
-            _augment_download_links(all_elements, rid=rid)
-            _progress_done(rid)
-            return all_elements, all_warnings, all_findings
-
-        return run_in_threadpool(_do)
+        _augment_download_links(all_elements, rid=rid)
+        _progress_done(rid)
+        return all_elements, all_warnings, all_findings
 
     try:
-        elements, warnings, findings = await _work()
+        # ★ FIX: await the threadpool helper (previous version returned the coroutine)
+        elements, warnings, findings = await run_in_threadpool(_do)
         return json_response({"rid": rid, "elements": elements, "warnings": warnings, "findings": findings})
     except Exception as e:
         _progress_done(rid)
