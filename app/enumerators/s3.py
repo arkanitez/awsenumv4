@@ -106,7 +106,6 @@ def enumerate(session: boto3.Session, account_id: str, region: str, g: Graph, wa
             if enc_conf:
                 # Keep both keys pointing to the same minimal object for compatibility with findings.py
                 details['ServerSideEncryptionConfiguration'] = enc_conf
-                details['encryption'] = enc_conf
         except ClientError as e:
             code = e.response.get('Error', {}).get('Code')
             # Missing config is not an error; other codes are interesting
