@@ -352,8 +352,7 @@ def analyze(elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 _add_finding(findings, n, "S3 versioning disabled", "Versioning not enabled", "HIGH")
             log = details.get("Logging") or details.get("logging") or {}
             logging_enabled = bool(
-                log.get("Enabled") or log.get("enabled") or
-                log.get("LoggingEnabled") or log.get("TargetBucket")
+                log.get("Enabled") or log.get("enabled") or log.get("LoggingEnabled") or log.get("TargetBucket")
             )
             if not logging_enabled:
                 _mark_issue(n, "high")
