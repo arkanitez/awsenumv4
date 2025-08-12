@@ -15,9 +15,8 @@ from starlette.concurrency import run_in_threadpool
 import orjson
 
 from .graph import Graph
-from .findings import analyze as analyze_findings  # <<< use our analyzer
+from .findings import analyze as analyze_findings  # findings engine
 
-# Keep these aligned with your repo
 from .enumerators import (
     ec2, elbv2, lambda_ as enum_lambda, apigwv2, s3, sqs_sns,
     dynamodb, rds, eks, ecs, eventbridge, cloudfront
@@ -50,8 +49,7 @@ def build_session(ak: Optional[str], sk: Optional[str], st: Optional[str], regio
 def _safe_get(d: Dict[str, Any], *path: str) -> Optional[Any]:
     cur = d
     for p in path:
-        if not isinstance(cur, dict):
-            return None
+        if not isinstance(cur, dict): return None
         cur = cur.get(p)
     return cur
 
@@ -75,28 +73,20 @@ _PROGRESS_LOCK = Lock()
 
 def _progress_init(rid: str, total: int, region: str) -> None:
     with _PROGRESS_LOCK:
-        _PROGRESS[rid] = {
-            "rid": rid,
-            "total": max(1, int(total)),
-            "current": 0,
-            "stage": f"Initializing ({region})",
-            "done": False,
-            "regions": [region],
-        }
+        _PROGRESS[rid] = {"rid": rid, "total": max(1, int(total)), "current": 0,
+                          "stage": f"Initializing ({region})", "done": False, "regions": [region]}
 
 def _progress_add_total(rid: str, delta: int) -> None:
     if not rid: return
     with _PROGRESS_LOCK:
         st = _PROGRESS.get(rid)
-        if st:
-            st["total"] = max(1, int(st.get("total", 1)) + int(delta))
+        if st: st["total"] = max(1, int(st.get("total", 1)) + int(delta))
 
 def _progress_stage(rid: str, stage: str) -> None:
     if not rid: return
     with _PROGRESS_LOCK:
         st = _PROGRESS.get(rid)
-        if st:
-            st["stage"] = stage
+        if st: st["stage"] = stage
 
 def _progress_tick(rid: str, stage: Optional[str] = None) -> None:
     if not rid: return
@@ -104,8 +94,7 @@ def _progress_tick(rid: str, stage: Optional[str] = None) -> None:
         st = _PROGRESS.get(rid)
         if st:
             st["current"] = min(st.get("total", 1), st.get("current", 0) + 1)
-            if stage:
-                st["stage"] = stage
+            if stage: st["stage"] = stage
 
 def _progress_done(rid: str) -> None:
     if not rid: return
@@ -125,7 +114,7 @@ async def progress_api(rid: str = Query(...)):
         return json_response(state)
 
 # --------------------------
-# Download endpoints
+# Download endpoints (unchanged)
 # --------------------------
 
 @app.get('/download/lambda-code')
@@ -184,20 +173,16 @@ async def download_apigwv2_export(
     bundle: Dict[str, Any] = {}
     try:
         bundle['api'] = agw.get_api(ApiId=apiId)
-
-        routes: List[Dict[str, Any]] = []
-        token = None
+        routes: List[Dict[str, Any]] = []; token = None
         while True:
-            kw = {"ApiId": apiId}
+            kw = {"ApiId": apiId}; 
             if token: kw["NextToken"] = token
             resp = agw.get_routes(**kw)
             routes.extend(resp.get("Items", []))
             token = resp.get("NextToken")
             if not token: break
         bundle['routes'] = routes
-
-        integrations: List[Dict[str, Any]] = []
-        token = None
+        integrations: List[Dict[str, Any]] = []; token = None
         while True:
             kw = {"ApiId": apiId}
             if token: kw["NextToken"] = token
@@ -206,10 +191,8 @@ async def download_apigwv2_export(
             token = resp.get("NextToken")
             if not token: break
         bundle['integrations'] = integrations
-
         stages = agw.get_stages(ApiId=apiId).get("Items", [])
         bundle['stages'] = stages
-
         data = orjson.dumps(bundle)
         filename = f"apigwv2-{apiId}.json"
         return Response(content=data, media_type="application/json",
@@ -254,7 +237,6 @@ async def download_cloudfront_config(
     sk: Optional[str] = Query(None),
     st: Optional[str] = Query(None),
 ):
-    # CloudFront is global; use us-east-1 for control-plane
     sess = build_session(ak, sk, st, "us-east-1")
     cf = sess.client('cloudfront', config=_boto_cfg())
     try:
@@ -286,8 +268,7 @@ async def open_in_console(arn: str = Query(...)):
             if '/distribution/' in arn:
                 did = arn.split('/distribution/')[-1]
                 url = f"https://console.aws.amazon.com/cloudfront/v3/home#/distributions/{did}"
-        if url:
-            return RedirectResponse(url=url, status_code=302)
+        if url: return RedirectResponse(url=url, status_code=302)
         return JSONResponse({"error": "unsupported arn for console deeplink"}, status_code=400)
     except Exception as e:
         return JSONResponse({"error": f"console deeplink failed: {e}"}, status_code=500)
@@ -312,23 +293,17 @@ SERVICES_ORDER: List[Tuple[str, Any]] = [
 ]
 
 def _inject_creds_into_existing_links(elements: List[Dict[str, Any]], ak: Optional[str], sk: Optional[str], st: Optional[str]) -> None:
-    if not ak and not sk and not st:
-        return
+    if not ak and not sk and not st: return
     for el in elements:
-        if not isinstance(el, dict) or el.get("group") != "nodes":
-            continue
+        if not isinstance(el, dict) or el.get("group") != "nodes": continue
         details = (el.get("data") or {}).get("details") or {}
         links = details.get("links")
-        if not isinstance(links, list):
-            continue
+        if not isinstance(links, list): continue
         for link in links:
             href = link.get("href")
-            if not isinstance(href, str) or not href.startswith("/download/"):
-                continue
-            if ("ak=" in href) or ("sk=" in href) or ("st=" in href):
-                continue
-            u = urlparse(href)
-            q = dict(parse_qsl(u.query))
+            if not isinstance(href, str) or not href.startswith("/download/"): continue
+            if ("ak=" in href) or ("sk=" in href) or ("st=" in href): continue
+            u = urlparse(href); q = dict(parse_qsl(u.query))
             if ak: q["ak"] = ak
             if sk: q["sk"] = sk
             if st: q["st"] = st
@@ -336,8 +311,7 @@ def _inject_creds_into_existing_links(elements: List[Dict[str, Any]], ak: Option
 
 def _augment_download_links(elements: List[Dict[str, Any]], ak: Optional[str], sk: Optional[str], st: Optional[str]) -> None:
     for el in elements:
-        if not isinstance(el, dict) or el.get("group") != "nodes":
-            continue
+        if not isinstance(el, dict) or el.get("group") != "nodes": continue
         data = el.get("data") or {}
         ntype = data.get("type")
         region = data.get("region") or DEFAULT_REGION
@@ -357,58 +331,42 @@ def _augment_download_links(elements: List[Dict[str, Any]], ak: Optional[str], s
         arn = details.get("arn")
         if arn and isinstance(arn, str):
             add("Open in AWS Console", f"/download/console?arn={quote_plus(arn)}")
-
         if ntype == "lambda":
-            fn_arn = details.get("arn")
-            fn_name = details.get("name") or data.get("label")
+            fn_arn = details.get("arn"); fn_name = details.get("name") or data.get("label")
             if fn_arn or fn_name:
                 qs = f"region={quote_plus(region)}"
                 if fn_arn: qs += f"&functionArn={quote_plus(fn_arn)}"
                 if fn_name: qs += f"&functionName={quote_plus(fn_name)}"
                 add("Download Lambda code (zip)", f"/download/lambda-code?{qs}")
-
         if ntype == "lambda_layer":
             layer_arn = details.get("arn") or data.get("label")
             version = details.get("version") or details.get("Version")
             if layer_arn and version:
                 qs = f"region={quote_plus(region)}&layerArn={quote_plus(layer_arn)}&version={quote_plus(str(version))}"
                 add("Download Lambda layer (zip)", f"/download/lambda-layer?{qs}")
-
         if ntype == "api_gw_v2":
             api_id = details.get("api_id") or _id_last(data.get("id") or "")
             if api_id:
                 qs = f"region={quote_plus(region)}&apiId={quote_plus(api_id)}"
                 add("Download API Gateway (HTTP/WebSocket) export (json)", f"/download/apigwv2-export?{qs}")
-
         if ntype == "dynamodb_table":
-            tab_arn = details.get("arn")
-            tab_name = details.get("name") or data.get("label")
+            tab_arn = details.get("arn"); tab_name = details.get("name") or data.get("label")
             if tab_arn or tab_name:
                 qs = f"region={quote_plus(region)}"
                 if tab_arn: qs += f"&tableArn={quote_plus(tab_arn)}"
                 if tab_name: qs += f"&tableName={quote_plus(tab_name)}"
                 add("Download DynamoDB table (describe json)", f"/download/dynamodb-table?{qs}")
-
         if ntype == "cloudfront":
             dist_id = details.get("id") or _id_last(data.get("id") or "")
             if dist_id:
                 qs = f"id={quote_plus(dist_id)}"
                 add("Download CloudFront distribution config (json)", f"/download/cloudfront-config?{qs}")
 
-def _enumerate_one_region(
-    sess: boto3.Session,
-    account_id: str,
-    region: str,
-    progress_rid: Optional[str] = None
+def _enumerate_one_region(sess: boto3.Session, account_id: str, region: str, progress_rid: Optional[str] = None
 ) -> Tuple[List[Dict[str, Any]], List[str], List[Dict[str, Any]]]:
-    warnings: List[str] = []
-    g = Graph()
-
-    if progress_rid:
-        _progress_stage(progress_rid, f"Enumerating services ({region})")
-
+    warnings: List[str] = []; g = Graph()
+    if progress_rid: _progress_stage(progress_rid, f"Enumerating services ({region})")
     service_counts: Dict[str, int] = {}
-
     for name, fn in SERVICES_ORDER:
         try:
             before = len(list(g.elements()))
@@ -421,11 +379,9 @@ def _enumerate_one_region(
         finally:
             _progress_tick(progress_rid, f"{region}: {name} ✓")
 
-    # Derived network inference (if present)
     try:
         _progress_stage(progress_rid, f"{region}: reachability")
-        for e in derive_reachability(g):
-            g.add_edge(**e)
+        for e in derive_reachability(g): g.add_edge(**e)
     except Exception as e:
         warnings.append(f'derive_reachability failed: {e}')
     finally:
@@ -433,9 +389,8 @@ def _enumerate_one_region(
 
     elements: List[Dict[str, Any]] = list(g.elements())
 
-    # Findings (mutates elements by tagging issues; returns list)
     _progress_stage(progress_rid, f"{region}: findings")
-    findings = analyze_findings(elements)
+    findings = analyze_findings(elements)  # mutates elements (adds classes/severity)
     _progress_tick(progress_rid, f"{region}: findings ✓")
 
     try:
@@ -453,18 +408,10 @@ def _list_enabled_regions(sess: boto3.Session) -> List[str]:
         out = ec2c.describe_regions(AllRegions=False)
         return sorted([r['RegionName'] for r in out.get('Regions', [])])
     except Exception:
-        return [
-            'us-east-1','us-east-2','us-west-1','us-west-2',
-            'eu-west-1','eu-west-2','eu-central-1',
-            'ap-south-1','ap-southeast-1','ap-southeast-2','ap-northeast-1'
-        ]
+        return ['us-east-1','us-east-2','us-west-1','us-west-2','eu-west-1','eu-west-2','eu-central-1','ap-south-1','ap-southeast-1','ap-southeast-2','ap-northeast-1']
 
 @app.post('/enumerate')
 async def enumerate_api(req: Request):
-    """
-    Run the heavy boto3 enumeration in a threadpool so the event loop
-    can keep serving /progress updates.
-    """
     payload = await req.json()
     ak = (payload.get('access_key_id') or '').strip() or None
     sk = (payload.get('secret_access_key') or '').strip() or None
@@ -473,13 +420,12 @@ async def enumerate_api(req: Request):
     scan_all = bool(payload.get('scan_all'))
     rid = (payload.get('rid') or '').strip() or str(uuid.uuid4())
 
-    per_region_steps = len(SERVICES_ORDER) + 2  # reachability + findings
+    per_region_steps = len(SERVICES_ORDER) + 2
     _progress_init(rid, per_region_steps, region)
     _progress_stage(rid, f"Starting in {region}")
 
     def do_enumeration() -> Dict[str, Any]:
         sess = build_session(ak, sk, st, region)
-
         warnings: List[str] = []
         account_id = 'self'
         try:
@@ -500,16 +446,21 @@ async def enumerate_api(req: Request):
                 _progress_stage(rid, f"Switching region: {r}")
                 rsess = build_session(ak, sk, st, r)
                 el2, w2, f2 = _enumerate_one_region(rsess, account_id, r, progress_rid=rid)
-                elements.extend(el2)
-                warnings.extend(w2)
+                elements.extend(el2); warnings.extend(w2)
                 for f in f2:
-                    if f not in findings:
-                        findings.append(f)
+                    if f not in findings: findings.append(f)
                 scanned_regions.append(r)
 
-        # Ensure credentialed downloads exist
+        # credentialed downloads
         _inject_creds_into_existing_links(elements, ak, sk, st)
         _augment_download_links(elements, ak, sk, st)
+
+        # id -> findings[] map for quick UI filtering
+        findings_by_id: Dict[str, List[Dict[str, Any]]] = {}
+        for f in findings:
+            fid = f.get('id')
+            if not fid: continue
+            findings_by_id.setdefault(fid, []).append(f)
 
         _progress_done(rid)
 
@@ -518,6 +469,7 @@ async def enumerate_api(req: Request):
             'elements': elements,
             'warnings': warnings,
             'findings': findings,
+            'findings_by_id': findings_by_id,
             'region': region,
             'scanned_regions': scanned_regions
         }
