@@ -260,9 +260,9 @@ function renderFindings(list) {
   }
   for (const f of arr) {
     const a = document.createElement('sl-alert');
-    a.variant = slVariantForSeverity(f.severity);  // <-- valid variant
+    a.variant = slVariantForSeverity(f.severity);  // valid variant
     a.closable = true;
-    a.open = true;                                  // <-- show alert
+    a.open = true;                                  // show alert
     a.innerText = `[${f.severity || 'INFO'}] ${f.title || ''}${f.detail ? ': ' + f.detail : ''}`;
     el.appendChild(a);
   }
@@ -551,14 +551,16 @@ function initCySafe() {
     try { cy.minimap({}); } catch {}
   }
 
+  // IMPORTANT CHANGE: Do NOT fallback to all findings when a selection has none
   cy.on('select', 'node,edge', (e) => {
     const d = e.target.data();
     renderDetails(d);
     const sel = getFindingsForElement(d);
     console.log('[ui] selection findings:', d.id, d.type, d.severity, '->', Array.isArray(sel) ? sel.length : 0);
-    renderFindings(sel && sel.length ? sel : (window.lastFindings || []));
+    renderFindings(sel);  // <-- render exactly the element's findings (may be empty)
   });
 
+  // When nothing is selected, show the full list
   cy.on('unselect', () => {
     document.getElementById('details').innerHTML = '<div class="muted">Select a node or edge.</div>';
     renderFindings(window.lastFindings || []);
@@ -601,7 +603,7 @@ async function handleEnumerateClick() {
     console.log('[ui] findings total:', window.lastFindings.length,
                 'indexed ids:', Object.keys(window.findingsById || {}).slice(0, 5));
 
-    // Show all findings by default
+    // Show all findings by default (nothing selected)
     renderFindings(window.lastFindings);
 
     // Graph
