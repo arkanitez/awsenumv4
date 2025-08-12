@@ -1,39 +1,36 @@
 /* app/ui/app.js */
 console.log('[ui] script loaded');
 
-// ---- Global state ----
 let cy;
 let progressTimer = null;
 
-// ---- Error surfaces -> Warnings details panel ----
+// ----------------------------------------
+// Error surfacing
+// ----------------------------------------
+function pushWarning(msg) {
+  const w = document.getElementById('warnings');
+  if (!w) return;
+  const a = document.createElement('sl-alert');
+  a.variant = 'warning';
+  a.closable = true;
+  a.innerText = String(msg);
+  w.appendChild(a);
+  const det = [...document.querySelectorAll('sl-details')].find(d => d.getAttribute('summary') === 'Warnings');
+  if (det) det.setAttribute('open', '');
+}
+
 window.addEventListener('error', e => {
   console.error('[ui] window error:', e.error || e.message || e);
-  const w = document.getElementById('warnings');
-  if (w) {
-    const a = document.createElement('sl-alert');
-    a.variant = 'warning';
-    a.closable = true;
-    a.innerText = String(e.error || e.message || e);
-    w.appendChild(a);
-    const det = [...document.querySelectorAll('sl-details')].find(d => d.getAttribute('summary') === 'Warnings');
-    if (det) det.setAttribute('open', '');
-  }
+  pushWarning(e.error || e.message || e);
 });
 window.addEventListener('unhandledrejection', e => {
   console.error('[ui] unhandledrejection:', e.reason);
-  const w = document.getElementById('warnings');
-  if (w) {
-    const a = document.createElement('sl-alert');
-    a.variant='warning';
-    a.closable=true;
-    a.innerText = String(e.reason);
-    w.appendChild(a);
-    const det = [...document.querySelectorAll('sl-details')].find(d => d.getAttribute('summary') === 'Warnings');
-    if (det) det.setAttribute('open', '');
-  }
+  pushWarning(e.reason);
 });
 
-// ---- Icon map (you can adjust/expand; absent icons won't break) ----
+// ----------------------------------------
+// Icons (safe if missing)
+// ----------------------------------------
 const ICONS = {
   vpc: '/ui/icons/vpc.svg',
   subnet: '/ui/icons/subnet.svg',
@@ -69,16 +66,20 @@ const ICONS = {
   api_gw_v2_route: '/ui/icons/api-gateway-route.svg'
 };
 
-/** Container colors (lighter fills; same vivid border) */
+// ----------------------------------------
+// Container colors (pale fills)
+// ----------------------------------------
 const CONTAINER_COLOR = {
-  vpc:          { fill: 'rgba(223, 252, 243, 0.06)',  border: '#10b981' }, // emerald
-  subnet:       { fill: 'rgba(228, 238, 254, 0.06)',  border: '#3b82f6' }, // blue
-  eks_cluster:  { fill: 'rgba(245, 158, 11, 0.06)',  border: '#f59e0b' }, // amber
-  ecs_cluster:  { fill: 'rgba(147, 51, 234, 0.06)',  border: '#9333ea' }, // purple
-  rds_cluster:  { fill: 'rgba(99, 102, 241, 0.06)',  border: '#6366f1' }  // indigo
+  vpc:          { fill: 'rgba(16, 185, 129, 0.06)',  border: '#10b981' },
+  subnet:       { fill: 'rgba(59, 130, 246, 0.06)',  border: '#3b82f6' },
+  eks_cluster:  { fill: 'rgba(245, 158, 11, 0.06)',  border: '#f59e0b' },
+  ecs_cluster:  { fill: 'rgba(147, 51, 234, 0.06)',  border: '#9333ea' },
+  rds_cluster:  { fill: 'rgba(99, 102, 241, 0.06)',  border: '#6366f1' }
 };
 
-// ---- Cytoscape Styles (safe defaults; you can recolor later) ----
+// ----------------------------------------
+// Styles (you can adjust colours later)
+// ----------------------------------------
 const NODE_STYLES = [
   { selector: 'node', style: {
       'label': 'data(label)',
@@ -95,7 +96,6 @@ const NODE_STYLES = [
       'z-index-compare': 'manual',
       'z-index': 1
   }},
-  // Only apply background-image when we explicitly set has-icon class
   { selector: 'node.has-icon', style: {
       'background-image': 'data(icon)',
       'background-fit': 'contain',
@@ -106,7 +106,6 @@ const NODE_STYLES = [
       'background-position-x': '50%',
       'background-position-y': '40%'
   }},
-  // Containers
   { selector: 'node.container', style: {
       'background-opacity': 1,
       'padding': 16,
@@ -127,7 +126,6 @@ const NODE_STYLES = [
 
   { selector: 'node:selected', style: { 'border-color': '#111827', 'border-width': 3 } },
 
-  // Risk highlight for nodes (findings engine sets data.severity="high" and class "issue")
   { selector: 'node[severity = "high"], node.issue', style: {
       'border-color': '#ef4444',
       'border-width': 3
@@ -150,8 +148,6 @@ const EDGE_STYLES = [
   { selector: 'edge[derived = "true"]',      style: { 'line-style': 'dashed' } },
   { selector: 'edge[type = "attach"], edge[type = "assoc"]', style: { 'opacity': 0.45 } },
   { selector: 'edge:selected', style: { 'width': 3 } },
-
-  // Risk highlight for edges
   { selector: 'edge[severity = "high"], edge.issue', style: {
       'line-color': '#ef4444',
       'target-arrow-color': '#ef4444',
@@ -159,14 +155,18 @@ const EDGE_STYLES = [
   }},
 ];
 
-// ---- Plugin registration (safe if missing) ----
+// ----------------------------------------
+// Plugins
+// ----------------------------------------
 function registerCytoscapePlugins() {
   try { if (window.cytoscapeCoseBilkent) cytoscape.use(window.cytoscapeCoseBilkent); } catch {}
   try { if (window.cytoscapeMinimap) cytoscape.use(window.cytoscapeMinimap); } catch {}
   try { if (window.cytoscapeSvg) cytoscape.use(window.cytoscapeSvg); } catch {}
 }
 
-// ---- Init Cytoscape (defensive) ----
+// ----------------------------------------
+// Init Cytoscape
+// ----------------------------------------
 function initCySafe() {
   console.log('[ui] initCy');
   if (!window.cytoscape) throw new Error('Cytoscape failed to load.');
@@ -202,27 +202,14 @@ function initCySafe() {
   cy.on('select', 'node,edge', (e) => {
     const d = e.target.data();
     renderDetails(d);
-    // Filter findings panel to this element's findings
-    try {
-      const all = Array.isArray(window.lastFindings) ? window.lastFindings : [];
-      const map = window.findingsById || null;
-      const sel = d && d.id ? (map && map[d.id] ? map[d.id] : all.filter(f => f && f.id === d.id)) : [];
-      if (sel.length) {
-        renderFindings(sel);
-      } else {
-        renderFindings(all);
-      }
-    } catch {}
+    // Filter findings to this element
+    const sel = getFindingsForElement(d);
+    renderFindings(sel && sel.length ? sel : window.lastFindings || []);
   });
 
   cy.on('unselect', () => {
     document.getElementById('details').innerHTML = '<div class="muted">Select a node or edge.</div>';
-    // Restore full findings list when nothing is selected
-    if (Array.isArray(window.lastFindings)) {
-      renderFindings(window.lastFindings);
-    } else {
-      renderFindings([]);
-    }
+    renderFindings(window.lastFindings || []);
   });
 
   const resetBtn = document.getElementById('btn-reset');
@@ -232,7 +219,9 @@ function initCySafe() {
   console.log('[ui] cy container rect:', rect);
 }
 
-// ---- Legend (simple; adjust if you themed differently) ----
+// ----------------------------------------
+// Legend
+// ----------------------------------------
 function legend() {
   const items = [
     ['VPC (container)', CONTAINER_COLOR.vpc.border],
@@ -263,7 +252,15 @@ function legend() {
   }
 }
 
-// ---- Warnings / Findings rendering ----
+// ----------------------------------------
+// Warnings / Findings / Details
+// ----------------------------------------
+function findingsContainer() {
+  return document.getElementById('findings') ||
+         document.getElementById('findings-list') ||
+         document.querySelector('.findings') ||
+         null;
+}
 function renderWarnings(list) {
   const el = document.getElementById('warnings');
   if (!el) return;
@@ -280,9 +277,8 @@ function renderWarnings(list) {
     if (det) det.setAttribute('open', '');
   }
 }
-
 function renderFindings(list) {
-  const el = document.getElementById('findings');
+  const el = findingsContainer();
   if (!el) return;
   el.innerHTML = '';
   const arr = Array.isArray(list) ? list : [];
@@ -292,14 +288,12 @@ function renderFindings(list) {
   }
   for (const f of arr) {
     const a = document.createElement('sl-alert');
-    a.variant = (f.severity || 'info').toLowerCase(); // info|warning|danger etc. Shoelace maps ok
+    a.variant = (f.severity || 'info').toLowerCase();
     a.closable = true;
     a.innerText = `[${f.severity || 'INFO'}] ${f.title || ''}${f.detail ? ': ' + f.detail : ''}`;
     el.appendChild(a);
   }
 }
-
-// ---- Details panel ----
 function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
 }
@@ -321,34 +315,91 @@ function renderDetails(data) {
   el.innerHTML = html;
 }
 
-// ---- Element processing ----
-/** Identify container nodes (parents) and mark them with classes; remove icons on containers. */
+// ----------------------------------------
+// Findings helpers (robust selection mapping)
+// ----------------------------------------
+function indexFindings(findings) {
+  const map = {};
+  if (!Array.isArray(findings)) return map;
+  for (const f of findings) {
+    const id = f && f.id;
+    if (!id) continue;
+    if (!map[id]) map[id] = [];
+    map[id].push(f);
+  }
+  return map;
+}
+
+/**
+ * Returns findings for a selected element data:
+ * 1) data.findings / data.issues if present
+ * 2) window.findingsById[id]
+ * 3) scan window.lastFindings where f.id === id
+ * 4) If element is visually flagged (issue/severity) but nothing found, return a synthetic finding
+ */
+function getFindingsForElement(d) {
+  if (!d) return [];
+  // 1) inline
+  if (Array.isArray(d.findings) && d.findings.length) return d.findings;
+  if (Array.isArray(d.issues) && d.issues.length) return d.issues;
+
+  const id = d.id;
+  const all = Array.isArray(window.lastFindings) ? window.lastFindings : [];
+
+  // 2) server-supplied map
+  const map = window.findingsById || {};
+  if (id && map[id] && map[id].length) return map[id];
+
+  // 3) client-scan
+  if (id) {
+    const direct = all.filter(f => f && f.id === id);
+    if (direct.length) return direct;
+  }
+
+  // 4) synthetic if visually flagged but no text findings available
+  const flagged = (d.severity === 'high') || (typeof d.severity === 'string' && d.severity.toLowerCase() === 'high');
+  // some builds use classes set on rendered element, so check for that too when possible
+  let hasIssueClass = false;
+  try {
+    const ele = cy && id ? cy.getElementById(id) : null;
+    hasIssueClass = !!(ele && ele.nonempty() && ele.hasClass('issue'));
+  } catch {}
+  if (flagged || hasIssueClass) {
+    return [{
+      id: id || '(unknown)',
+      type: d.type || 'resource',
+      severity: 'HIGH',
+      title: 'Security issue flagged',
+      detail: 'This element is highlighted as risky, but no detailed finding text was attached. Ensure the backend returns findings_by_id or inline findings for this element.',
+      region: d.region,
+      label: d.label
+    }];
+  }
+  return [];
+}
+
+// ----------------------------------------
+// Element processing
+// ----------------------------------------
 function markContainers(elements) {
   const parentIds = new Set(
     (elements || [])
       .filter(el => el && el.data && el.data.parent)
       .map(el => el.data.parent)
   );
-
   return (elements || []).map(el => {
     if (!el || !el.data || el.group !== 'nodes') return el;
     const id = el.data.id;
     if (!id || !parentIds.has(id)) return el;
-
     const t = (el.data.type || '').trim();
     const cls = (el.classes || '').trim();
     const containerCls = ['container', t ? `container-${t}` : null].filter(Boolean).join(' ');
     el.classes = (cls ? cls + ' ' : '') + containerCls;
-
-    // Ensure containers don't set background-image
     if (el.data.icon) delete el.data.icon;
     el.classes = el.classes.replace(/\bhas-icon\b/g, '').trim();
-
     return el;
   });
 }
-
-/** Add icons to non-container nodes only (adds has-icon class only if icon exists). */
 function injectIcons(elements) {
   return (elements || []).map(el => {
     if (!el || !el.data || el.group !== 'nodes') return el;
@@ -365,15 +416,12 @@ function injectIcons(elements) {
       const cls = (el.classes || '').trim();
       el.classes = (cls ? cls + ' ' : '') + 'has-icon';
     } else {
-      // Remove empty icon to avoid "background-image: " errors
       if (!el.data.icon) delete el.data.icon;
       el.classes = (el.classes || '').replace(/\bhas-icon\b/g, '').trim();
     }
     return el;
   });
 }
-
-/** Remove edges that reference non-existent nodes. Also dedupe by id. */
 function sanitizeElements(elements) {
   const nodes = [], edges = [];
   for (const el of elements || []) {
@@ -399,19 +447,14 @@ function sanitizeElements(elements) {
   const cleaned = [...nodeMap.values(), ...edgeMap.values()];
   if (dropped > 0) {
     console.warn('[ui] filtered invalid edges:', dropped);
-    const w = document.getElementById('warnings');
-    if (w) {
-      const a = document.createElement('sl-alert'); a.variant='warning'; a.closable=true;
-      a.innerText = `Filtered ${dropped} edges referencing missing nodes. Check ID consistency.`;
-      w.appendChild(a);
-      const det = [...document.querySelectorAll('sl-details')].find(d => d.getAttribute('summary') === 'Warnings');
-      if (det) det.setAttribute('open', '');
-    }
+    pushWarning(`Filtered ${dropped} edges referencing missing nodes. Check ID consistency.`);
   }
   return cleaned;
 }
 
-// ---- Progress UI ----
+// ----------------------------------------
+// Progress UI
+// ----------------------------------------
 function ensureProgressBar() {
   let wrap = document.getElementById('progress-wrap');
   if (wrap) return wrap;
@@ -478,11 +521,13 @@ async function pollProgress(rid) {
       setTimeout(hideProgress, 600);
     }
   } catch (e) {
-    // ignore polling hiccups
+    // ignore
   }
 }
 
-// ---- API helpers ----
+// ----------------------------------------
+// API
+// ----------------------------------------
 async function postEnumerate(rid) {
   const ak = (document.getElementById('ak')?.value || '').trim();
   const sk = (document.getElementById('sk')?.value || '').trim();
@@ -496,7 +541,9 @@ async function postEnumerate(rid) {
   return { ok: res.ok, status: res.status, data };
 }
 
-// ---- Enumerate button handler ----
+// ----------------------------------------
+// Enumerate handler
+// ----------------------------------------
 async function handleEnumerateClick() {
   console.log('[ui] Enumerate clicked');
   const ak = (document.getElementById('ak')?.value || '').trim();
@@ -518,11 +565,14 @@ async function handleEnumerateClick() {
     console.log('[ui] elements count:', elements.length);
     window.lastElements = elements;
 
-    // Make findings available globally and render them by default
+    // Findings: take from server or build index on the client
     window.lastFindings = Array.isArray(data?.findings) ? data.findings : [];
-    window.findingsById = data?.findings_by_id || {};
+    window.findingsById = data?.findings_by_id || indexFindings(window.lastFindings);
+
+    // Show all findings by default
     renderFindings(window.lastFindings);
 
+    // Process and render graph
     elements = sanitizeElements(elements);
     elements = markContainers(elements);
     elements = injectIcons(elements);
@@ -556,7 +606,9 @@ async function handleEnumerateClick() {
   }
 }
 
-// ---- Bind UI ----
+// ----------------------------------------
+// Bind & boot
+// ----------------------------------------
 function bindUI() {
   console.log('[ui] bindUI');
   const btn = document.getElementById('btn-enumerate');
@@ -574,12 +626,10 @@ function bindUI() {
       el && el.addEventListener('keydown', e => { if (e.key === 'Enter') handleEnumerateClick(); });
     });
   }).catch(() => {
-    // fallback plain click
     btn.addEventListener('click', handleEnumerateClick);
   });
 }
 
-// ---- Boot ----
 document.addEventListener('DOMContentLoaded', () => {
   console.log('[ui] DOMContentLoaded');
   bindUI();
