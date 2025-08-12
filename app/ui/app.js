@@ -131,6 +131,22 @@ const NODE_STYLES = [
       'border-color': '#ef4444',
       'border-width': 3
   }},
+   {
+     selector: 'edge[severity = "medium"], edge[severity = "MEDIUM"]',
+     style: { 'line-color': '#f59e0b', 'target-arrow-color': '#f59e0b', 'width': 2 }
+   },
+   {
+     selector: 'edge[severity = "low"], edge[severity = "LOW"]',
+     style: { 'line-color': '#facc15', 'target-arrow-color': '#facc15', 'width': 1.5 }
+   },
+   {
+     selector: 'node[severity = "medium"], node[severity = "MEDIUM"]',
+     style: { 'border-color': '#f59e0b', 'border-width': 2 }
+   },
+   {
+     selector: 'node[severity = "low"], node[severity = "LOW"]',
+     style: { 'border-color': '#facc15', 'border-width': 1.5 }
+   },
 ];
 
 const EDGE_STYLES = [
