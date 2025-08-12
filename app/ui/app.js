@@ -61,13 +61,13 @@ const ICONS = {
   api_gw_v2_route: '/ui/icons/api-gateway-route.svg'
 };
 
-/** Container colors (lighter fills; same vivid border) */
+/** Very pale fills; vivid borders for containers */
 const CONTAINER_COLOR = {
-  vpc:          { fill: 'rgba(223, 252, 243, 0.06)',  border: '#10b981' }, // emerald
-  subnet:       { fill: 'rgba(228, 238, 254, 0.06)',  border: '#3b82f6' }, // blue
-  eks_cluster:  { fill: 'rgba(245, 158, 11, 0.06)',  border: '#f59e0b' }, // amber
-  ecs_cluster:  { fill: 'rgba(147, 51, 234, 0.06)',  border: '#9333ea' }, // purple
-  rds_cluster:  { fill: 'rgba(99, 102, 241, 0.06)',  border: '#6366f1' }  // indigo
+  vpc:          { fill: 'rgba(16, 185, 129, 0.06)',  border: '#10b981' },
+  subnet:       { fill: 'rgba(59, 130, 246, 0.06)',  border: '#3b82f6' },
+  eks_cluster:  { fill: 'rgba(245, 158, 11, 0.06)',  border: '#f59e0b' },
+  ecs_cluster:  { fill: 'rgba(147, 51, 234, 0.06)',  border: '#9333ea' },
+  rds_cluster:  { fill: 'rgba(99, 102, 241, 0.06)',  border: '#6366f1' }
 };
 
 const NODE_STYLES = [
@@ -115,6 +115,12 @@ const NODE_STYLES = [
   { selector: 'node.container-ecs_cluster', style: { 'background-color': CONTAINER_COLOR.ecs_cluster.fill,'border-color': CONTAINER_COLOR.ecs_cluster.border } },
   { selector: 'node.container-rds_cluster', style: { 'background-color': CONTAINER_COLOR.rds_cluster.fill,'border-color': CONTAINER_COLOR.rds_cluster.border } },
   { selector: 'node:selected', style: { 'border-color': '#111827', 'border-width': 3 } },
+
+  // >>> Risk highlight for nodes
+  { selector: 'node[severity = "high"], node.issue', style: {
+      'border-color': '#ef4444',
+      'border-width': 3
+  }},
 ];
 
 const EDGE_STYLES = [
@@ -125,6 +131,13 @@ const EDGE_STYLES = [
   { selector: 'edge[derived = "true"]', style: { 'line-style': 'dashed' } },
   { selector: 'edge[type = "attach"], edge[type = "assoc"]', style: { 'opacity': 0.45 } },
   { selector: 'edge:selected', style: { 'width': 3 } },
+
+  // >>> Risk highlight for edges
+  { selector: 'edge[severity = "high"], edge.issue', style: {
+      'line-color': '#ef4444',
+      'target-arrow-color': '#ef4444',
+      'width': 3
+  }},
 ];
 
 function registerCytoscapePlugins() {
@@ -146,7 +159,6 @@ function initCySafe() {
     elements: [],
     minZoom: 0.25,
     maxZoom: 2.5,
-    wheelSensitivity: 0.1,
     pixelRatio: 1,
     boxSelectionEnabled: false,
     style: [
@@ -183,7 +195,8 @@ function legend(){
     ['Resource edges', '#2563eb'],
     ['Network edges', '#f97316'],
     ['Data/invoke edges', '#0ea5e9 (dotted)'],
-    ['Derived', 'dashed']
+    ['Derived', 'dashed'],
+    ['Issues (High)', '#ef4444'] // <<< new
   ];
   const el = document.getElementById('legend'); el.innerHTML = '';
   for (const [name, color] of items){
