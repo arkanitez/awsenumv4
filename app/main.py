@@ -15,23 +15,18 @@ from starlette.concurrency import run_in_threadpool
 import orjson
 
 from .graph import Graph
+from .findings import analyze as analyze_findings  # <<< use our analyzer
+
 # Keep these aligned with your repo
 from .enumerators import (
     ec2, elbv2, lambda_ as enum_lambda, apigwv2, s3, sqs_sns,
     dynamodb, rds, eks, ecs, eventbridge, cloudfront
 )
 
-# Optional imports — safe fallbacks if not present
 try:
     from .reachability import derive_reachability
 except Exception:
     def derive_reachability(g: Graph):
-        return []
-
-try:
-    from .findings import analyze as analyze_findings
-except Exception:
-    def analyze_findings(elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return []
 
 DEFAULT_REGION = os.environ.get("DEFAULT_REGION", "ap-southeast-1")
@@ -298,7 +293,7 @@ async def open_in_console(arn: str = Query(...)):
         return JSONResponse({"error": f"console deeplink failed: {e}"}, status_code=500)
 
 # --------------------------
-# Enumeration (with progress)
+# Enumeration helpers
 # --------------------------
 
 SERVICES_ORDER: List[Tuple[str, Any]] = [
@@ -317,10 +312,6 @@ SERVICES_ORDER: List[Tuple[str, Any]] = [
 ]
 
 def _inject_creds_into_existing_links(elements: List[Dict[str, Any]], ak: Optional[str], sk: Optional[str], st: Optional[str]) -> None:
-    """
-    Some enumerators may already add links like '/download/...'.
-    Ensure those links carry ak/sk/st so the endpoints can auth.
-    """
     if not ak and not sk and not st:
         return
     for el in elements:
@@ -330,24 +321,20 @@ def _inject_creds_into_existing_links(elements: List[Dict[str, Any]], ak: Option
         links = details.get("links")
         if not isinstance(links, list):
             continue
-        for i, link in enumerate(links):
+        for link in links:
             href = link.get("href")
             if not isinstance(href, str) or not href.startswith("/download/"):
                 continue
-            # If any cred already present, skip
             if ("ak=" in href) or ("sk=" in href) or ("st=" in href):
                 continue
-            # append creds
             u = urlparse(href)
             q = dict(parse_qsl(u.query))
             if ak: q["ak"] = ak
             if sk: q["sk"] = sk
             if st: q["st"] = st
-            new_href = urlunparse((u.scheme, u.netloc, u.path, u.params, urlencode(q), u.fragment))
-            link["href"] = new_href
+            link["href"] = urlunparse((u.scheme, u.netloc, u.path, u.params, urlencode(q), u.fragment))
 
 def _augment_download_links(elements: List[Dict[str, Any]], ak: Optional[str], sk: Optional[str], st: Optional[str]) -> None:
-    """Add our own standard download links and include creds in qs."""
     for el in elements:
         if not isinstance(el, dict) or el.get("group") != "nodes":
             continue
@@ -358,7 +345,6 @@ def _augment_download_links(elements: List[Dict[str, Any]], ak: Optional[str], s
         links = details.setdefault("links", [])
 
         def add(title: str, href: str, download: bool = True):
-            # always inject creds here
             if href.startswith("/download/"):
                 if "?" in href:
                     href += f"&ak={quote_plus(ak or '')}&sk={quote_plus(sk or '')}"
@@ -445,15 +431,12 @@ def _enumerate_one_region(
     finally:
         _progress_tick(progress_rid, f"{region}: reachability ✓")
 
-    # Findings (if present)
     elements: List[Dict[str, Any]] = list(g.elements())
-    try:
-        _progress_stage(progress_rid, f"{region}: findings")
-        findings = analyze_findings(elements)
-    except Exception:
-        findings = []
-    finally:
-        _progress_tick(progress_rid, f"{region}: findings ✓")
+
+    # Findings (mutates elements by tagging issues; returns list)
+    _progress_stage(progress_rid, f"{region}: findings")
+    findings = analyze_findings(elements)
+    _progress_tick(progress_rid, f"{region}: findings ✓")
 
     try:
         total_nodes = sum(1 for el in elements if 'source' not in (el.get('data') or {}))
@@ -490,7 +473,6 @@ async def enumerate_api(req: Request):
     scan_all = bool(payload.get('scan_all'))
     rid = (payload.get('rid') or '').strip() or str(uuid.uuid4())
 
-    # Initialize progress immediately
     per_region_steps = len(SERVICES_ORDER) + 2  # reachability + findings
     _progress_init(rid, per_region_steps, region)
     _progress_stage(rid, f"Starting in {region}")
@@ -510,7 +492,6 @@ async def enumerate_api(req: Request):
         warnings.extend(w_reg)
         scanned_regions = [region]
 
-        # Optional multi-region fallback
         if scan_all and not elements:
             regions = [r for r in _list_enabled_regions(sess) if r != region]
             extra_total = (len(regions)) * (len(SERVICES_ORDER) + 2)
@@ -526,9 +507,8 @@ async def enumerate_api(req: Request):
                         findings.append(f)
                 scanned_regions.append(r)
 
-        # 1) If other enumerators already put /download links, ensure they include creds
+        # Ensure credentialed downloads exist
         _inject_creds_into_existing_links(elements, ak, sk, st)
-        # 2) Add our standard downloads; they will always include creds in qs
         _augment_download_links(elements, ak, sk, st)
 
         _progress_done(rid)
