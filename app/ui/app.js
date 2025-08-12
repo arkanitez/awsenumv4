@@ -1,31 +1,37 @@
+/* app/ui/app.js */
 console.log('[ui] script loaded');
-
-window.addEventListener('error', e => {
-  console.error('[ui] window error:', e.error || e.message || e);
-  const w = document.getElementById('warnings');
-  if (w) {
-    const a = document.createElement('sl-alert'); a.variant='warning'; a.closable=true;
-    a.innerText = String(e.error || e.message || e);
-    w.appendChild(a);
-    const det = [...document.querySelectorAll('sl-details')].find(d => d.getAttribute('summary') === 'Warnings');
-    if (det) det.setAttribute('open', '');
-  }
-});
-window.addEventListener('unhandledrejection', e => {
-  console.error('[ui] unhandledrejection:', e.reason);
-  const w = document.getElementById('warnings');
-  if (w) {
-    const a = document.createElement('sl-alert'); a.variant='warning'; a.closable=true;
-    a.innerText = String(e.reason);
-    w.appendChild(a);
-    const det = [...document.querySelectorAll('sl-details')].find(d => d.getAttribute('summary') === 'Warnings');
-    if (det) det.setAttribute('open', '');
-  }
-});
 
 let cy;
 let progressTimer = null;
 
+/* ---------------------
+   Warnings helper
+---------------------- */
+function pushWarning(msg) {
+  const w = document.getElementById('warnings');
+  if (!w) return;
+  const a = document.createElement('sl-alert');
+  a.variant = 'warning';
+  a.closable = true;
+  a.open = true;                       // ensure visible
+  a.innerText = String(msg);
+  w.appendChild(a);
+  const det = [...document.querySelectorAll('sl-details')].find(d => d.getAttribute('summary') === 'Warnings');
+  if (det) det.setAttribute('open', '');
+}
+
+window.addEventListener('error', e => {
+  console.error('[ui] window error:', e.error || e.message || e);
+  pushWarning(e.error || e.message || e);
+});
+window.addEventListener('unhandledrejection', e => {
+  console.error('[ui] unhandledrejection:', e.reason);
+  pushWarning(e.reason);
+});
+
+/* ---------------------
+   Icons (safe if missing)
+---------------------- */
 const ICONS = {
   vpc: '/ui/icons/vpc.svg',
   subnet: '/ui/icons/subnet.svg',
@@ -61,15 +67,20 @@ const ICONS = {
   api_gw_v2_route: '/ui/icons/api-gateway-route.svg'
 };
 
-/** Container colors (lighter fills; same vivid border) */
+/* ---------------------
+   Containers (pale fills)
+---------------------- */
 const CONTAINER_COLOR = {
-  vpc:          { fill: 'rgba(223, 252, 243, 0.06)',  border: '#10b981' }, // emerald
-  subnet:       { fill: 'rgba(228, 238, 254, 0.06)',  border: '#3b82f6' }, // blue
-  eks_cluster:  { fill: 'rgba(245, 158, 11, 0.06)',  border: '#f59e0b' }, // amber
-  ecs_cluster:  { fill: 'rgba(147, 51, 234, 0.06)',  border: '#9333ea' }, // purple
-  rds_cluster:  { fill: 'rgba(99, 102, 241, 0.06)',  border: '#6366f1' }  // indigo
+  vpc:         { fill: 'rgba(16, 185, 129, 0.06)',  border: '#10b981' },
+  subnet:      { fill: 'rgba(59, 130, 246, 0.06)',  border: '#3b82f6' },
+  eks_cluster: { fill: 'rgba(245, 158, 11, 0.06)',  border: '#f59e0b' },
+  ecs_cluster: { fill: 'rgba(147, 51, 234, 0.06)',  border: '#9333ea' },
+  rds_cluster: { fill: 'rgba(99, 102, 241, 0.06)',  border: '#6366f1' }
 };
 
+/* ---------------------
+   Styles
+---------------------- */
 const NODE_STYLES = [
   { selector: 'node', style: {
       'label': 'data(label)',
@@ -105,7 +116,6 @@ const NODE_STYLES = [
       'text-margin-y': 6,
       'border-width': 2,
       'background-image': 'none',
-      'z-compound-depth': 'bottom',
       'z-index-compare': 'manual',
       'z-index': 0
   }},
@@ -114,156 +124,279 @@ const NODE_STYLES = [
   { selector: 'node.container-eks_cluster', style: { 'background-color': CONTAINER_COLOR.eks_cluster.fill,'border-color': CONTAINER_COLOR.eks_cluster.border } },
   { selector: 'node.container-ecs_cluster', style: { 'background-color': CONTAINER_COLOR.ecs_cluster.fill,'border-color': CONTAINER_COLOR.ecs_cluster.border } },
   { selector: 'node.container-rds_cluster', style: { 'background-color': CONTAINER_COLOR.rds_cluster.fill,'border-color': CONTAINER_COLOR.rds_cluster.border } },
+
   { selector: 'node:selected', style: { 'border-color': '#111827', 'border-width': 3 } },
+
+  { selector: 'node[severity = "high"], node.issue', style: {
+      'border-color': '#ef4444',
+      'border-width': 3
+  }},
 ];
 
 const EDGE_STYLES = [
-  { selector: 'edge', style: { 'curve-style': 'bezier', 'target-arrow-shape': 'triangle', 'arrow-scale': 0.9, 'width': 2, 'label': 'data(label)', 'font-size': 9, 'color':'#111827' } },
+  { selector: 'edge', style: {
+      'curve-style': 'bezier',
+      'target-arrow-shape': 'triangle',
+      'arrow-scale': 0.9,
+      'width': 2,
+      'label': 'data(label)',
+      'font-size': 9,
+      'color':'#111827'
+  }},
   { selector: 'edge[category = "resource"]', style: { 'line-color': '#2563eb', 'target-arrow-color': '#2563eb' } },
-  { selector: 'edge[category = "network"]', style: { 'line-color': '#f97316', 'target-arrow-color': '#f97316' } },
-  { selector: 'edge[category = "data"]', style: { 'line-color': '#0ea5e9', 'target-arrow-color': '#0ea5e9', 'line-style': 'dotted' } },
-  { selector: 'edge[derived = "true"]', style: { 'line-style': 'dashed' } },
+  { selector: 'edge[category = "network"]',  style: { 'line-color': '#f97316', 'target-arrow-color': '#f97316' } },
+  { selector: 'edge[category = "data"]',     style: { 'line-color': '#0ea5e9', 'target-arrow-color': '#0ea5e9', 'line-style': 'dotted' } },
+  { selector: 'edge[derived = "true"]',      style: { 'line-style': 'dashed' } },
   { selector: 'edge[type = "attach"], edge[type = "assoc"]', style: { 'opacity': 0.45 } },
   { selector: 'edge:selected', style: { 'width': 3 } },
+  { selector: 'edge[severity = "high"], edge.issue', style: {
+      'line-color': '#ef4444',
+      'target-arrow-color': '#ef4444',
+      'width': 3
+  }},
 ];
 
+/* ---------------------
+   Plugins
+---------------------- */
 function registerCytoscapePlugins() {
-  try { if (window.cytoscapeCoseBilkent) cytoscape.use(window.cytoscapeCoseBilkent); } catch (e) {}
-  try { if (window.cytoscapeMinimap) cytoscape.use(window.cytoscapeMinimap); } catch (e) {}
-  try { if (window.cytoscapeSvg) cytoscape.use(window.cytoscapeSvg); } catch (e) {}
+  try { if (window.cytoscapeCoseBilkent) cytoscape.use(window.cytoscapeCoseBilkent); } catch {}
+  try { if (window.cytoscapeMinimap) cytoscape.use(window.cytoscapeMinimap); } catch {}
+  try { if (window.cytoscapeSvg) cytoscape.use(window.cytoscapeSvg); } catch {}
 }
 
-function initCySafe() {
-  console.log('[ui] initCy');
-  if (!window.cytoscape) throw new Error('Cytoscape failed to load.');
-  const container = document.getElementById('cy');
-  if (!container) throw new Error('#cy container not found');
+/* ---------------------
+   Ensure Findings container exists
+---------------------- */
+function ensureFindingsContainer() {
+  let el = document.getElementById('findings') ||
+           document.getElementById('findings-list') ||
+           document.querySelector('.findings');
+  if (el) return el;
 
-  registerCytoscapePlugins();
+  // Create one next to #details (left sidebar), so it’s always visible
+  const details = document.getElementById('details');
+  const host = details && details.parentElement ? details.parentElement : document.body;
 
-  cy = cytoscape({
-    container,
-    elements: [],
-    minZoom: 0.25,
-    maxZoom: 2.5,
-    wheelSensitivity: 0.1,
-    pixelRatio: 1,
-    boxSelectionEnabled: false,
-    style: [
-      ...NODE_STYLES,
-      ...EDGE_STYLES,
-    ],
-    layout: {
-      name: (window.cytoscapeCoseBilkent ? 'cose-bilkent' : 'breadthfirst'),
-      quality: 'default', animate: false, nodeRepulsion: 80000, idealEdgeLength: 220, gravity: 0.25, numIter: 1200, tile: true
-    },
-  });
-
-  if (typeof cy.minimap === 'function') { try { cy.minimap({}); } catch {} }
-
-  cy.on('select', 'node,edge', (e) => {
-    const d = e.target.data();
-    renderDetails(d);
-  });
-  cy.on('unselect', () => {
-    document.getElementById('details').innerHTML = '<div class="muted">Select a node or edge.</div>';
-  });
-
-  const resetBtn = document.getElementById('btn-reset');
-  if (resetBtn) resetBtn.addEventListener('click', () => { cy.fit(null, 60); });
-
-  const rect = cy.container().getBoundingClientRect();
-  console.log('[ui] cy container rect:', rect);
+  el = document.createElement('div');
+  el.id = 'findings';
+  el.style.marginTop = '12px';
+  el.innerHTML = '<div class="muted">No findings.</div>';
+  host.appendChild(el);
+  console.warn('[ui] Created #findings container automatically (was missing).');
+  return el;
 }
 
-function legend(){
+/* ---------------------
+   Legend
+---------------------- */
+function legend() {
   const items = [
     ['VPC (container)', CONTAINER_COLOR.vpc.border],
     ['Subnet (container)', CONTAINER_COLOR.subnet.border],
     ['Resource edges', '#2563eb'],
     ['Network edges', '#f97316'],
     ['Data/invoke edges', '#0ea5e9 (dotted)'],
-    ['Derived', 'dashed']
+    ['Derived', 'dashed'],
+    ['Issues (High)', '#ef4444']
   ];
-  const el = document.getElementById('legend'); el.innerHTML = '';
-  for (const [name, color] of items){
-    const row = document.createElement('div'); row.className = 'legend-row';
-    const sw = document.createElement('span'); sw.className = 'swatch';
-    if (color === 'dashed'){ sw.style.border = '1px dashed #9ca3af'; sw.style.background='transparent'; }
-    else { sw.style.background = color.split(' ')[0]; }
-    row.appendChild(sw); row.appendChild(document.createTextNode(name)); el.appendChild(row);
+  const el = document.getElementById('legend');
+  if (!el) return;
+  el.innerHTML = '';
+  for (const [name, color] of items) {
+    const row = document.createElement('div');
+    row.className = 'legend-row';
+    const sw = document.createElement('span');
+    sw.className = 'swatch';
+    if (color === 'dashed') {
+      sw.style.border = '1px dashed #9ca3af';
+      sw.style.background = 'transparent';
+    } else {
+      sw.style.background = String(color).split(' ')[0];
+    }
+    row.appendChild(sw);
+    row.appendChild(document.createTextNode(name));
+    el.appendChild(row);
   }
 }
 
-function renderWarnings(list){
-  const el = document.getElementById('warnings'); el.innerHTML = '';
-  (list||[]).forEach(w => {
-    const a = document.createElement('sl-alert'); a.variant='warning'; a.closable=true;
+/* ---------------------
+   Warnings / Findings / Details
+---------------------- */
+function renderWarnings(list) {
+  const el = document.getElementById('warnings');
+  if (!el) return;
+  el.innerHTML = '';
+  (list || []).forEach(w => {
+    const a = document.createElement('sl-alert');
+    a.variant = 'warning';
+    a.closable = true;
+    a.open = true;                        // <-- make visible
     a.innerText = String(w);
     el.appendChild(a);
   });
-  if ((list||[]).length) {
+  if ((list || []).length) {
     const det = [...document.querySelectorAll('sl-details')].find(d => d.getAttribute('summary') === 'Warnings');
     if (det) det.setAttribute('open', '');
   }
 }
 
-function renderFindings(list){
-  const el = document.getElementById('findings'); el.innerHTML = '';
-  (list||[]).forEach(f => {
-    const a = document.createElement('sl-alert'); a.variant = (f.severity||'info').toLowerCase(); a.closable=true;
-    a.innerText = `[${f.severity}] ${f.title}${f.detail?': '+f.detail:''}`;
-    el.appendChild(a);
-  });
+// Map backend severities to Shoelace variants
+function slVariantForSeverity(sev) {
+  const s = String(sev || '').toUpperCase();
+  if (s === 'HIGH' || s === 'CRITICAL' || s === 'DANGER') return 'danger';
+  if (s === 'MEDIUM' || s === 'WARN' || s === 'WARNING') return 'warning';
+  if (s === 'LOW' || s === 'NEUTRAL') return 'neutral';
+  return 'primary'; // INFO or unknown
 }
 
-function iconFor(type){ return ICONS[type] || undefined; }
+function renderFindings(list) {
+  const el = ensureFindingsContainer();
+  el.innerHTML = '';
+  const arr = Array.isArray(list) ? list : [];
+  if (!arr.length) {
+    el.innerHTML = '<div class="muted">No findings.</div>';
+    return;
+  }
+  for (const f of arr) {
+    const a = document.createElement('sl-alert');
+    a.variant = slVariantForSeverity(f.severity);  // valid variant
+    a.closable = true;
+    a.open = true;                                  // show alert
+    a.innerText = `[${f.severity || 'INFO'}] ${f.title || ''}${f.detail ? ': ' + f.detail : ''}`;
+    el.appendChild(a);
+  }
+}
 
-/** Identify container nodes (parents) and mark them with classes. */
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+}
+
+function renderDetails(data) {
+  const el = document.getElementById('details');
+  if (!el) return;
+  const links = (data?.details && Array.isArray(data.details.links)) ? data.details.links : [];
+  let html = '';
+  if (links.length) {
+    html += '<div style="margin-bottom:8px"><strong>Downloads</strong><ul style="margin:6px 0 10px 18px">';
+    for (const l of links) {
+      const t = String(l.title || 'download');
+      const href = String(l.href || '#');
+      html += `<li><a href="${href}" target="_blank" rel="noopener">${escapeHtml(t)}</a></li>`;
+    }
+    html += '</ul></div>';
+  }
+  html += `<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+  el.innerHTML = html;
+}
+
+/* ---------------------
+   Findings helpers
+---------------------- */
+function indexFindings(findings) {
+  const map = {};
+  if (!Array.isArray(findings)) return map;
+  for (const f of findings) {
+    const id = f && f.id;
+    if (!id) continue;
+    if (!map[id]) map[id] = [];
+    map[id].push(f);
+  }
+  return map;
+}
+
+function getFindingsForElement(d) {
+  if (!d) return [];
+  // 1) inline
+  if (Array.isArray(d.findings) && d.findings.length) return d.findings;
+  if (Array.isArray(d.issues) && d.issues.length) return d.issues;
+
+  const id = d.id;
+  const all = Array.isArray(window.lastFindings) ? window.lastFindings : [];
+
+  // 2) server-supplied index
+  const map = window.findingsById || {};
+  if (id && map[id] && map[id].length) return map[id];
+
+  // 3) client scan
+  if (id) {
+    const direct = all.filter(f => f && f.id === id);
+    if (direct.length) return direct;
+  }
+
+  // 4) synthetic if visually flagged but no text finding
+  const flagged = (typeof d.severity === 'string' && d.severity.toLowerCase() === 'high');
+  let hasIssueClass = false;
+  try {
+    const coll = cy && id ? cy.getElementById(id) : null;
+    if (coll) {
+      const present = (typeof coll.nonempty === 'function') ? coll.nonempty() :
+                      (typeof coll.size === 'function') ? (coll.size() > 0) :
+                      (typeof coll.length === 'number' ? coll.length > 0 : true);
+      if (present) hasIssueClass = coll.hasClass('issue') || coll.hasClass('high');
+    }
+  } catch {}
+
+  if (flagged || hasIssueClass) {
+    return [{
+      id: id || '(unknown)',
+      type: d.type || 'resource',
+      severity: 'HIGH',
+      title: 'Security issue flagged',
+      detail: 'This element is highlighted as risky, but no detailed finding text was attached. Ensure the backend returns findings_by_id or inline findings for this element.',
+      region: d.region,
+      label: d.label
+    }];
+  }
+  return [];
+}
+
+/* ---------------------
+   Element processing
+---------------------- */
 function markContainers(elements) {
   const parentIds = new Set(
     (elements || [])
       .filter(el => el && el.data && el.data.parent)
       .map(el => el.data.parent)
   );
-
   return (elements || []).map(el => {
     if (!el || !el.data || el.group !== 'nodes') return el;
     const id = el.data.id;
     if (!id || !parentIds.has(id)) return el;
-
     const t = (el.data.type || '').trim();
     const cls = (el.classes || '').trim();
     const containerCls = ['container', t ? `container-${t}` : null].filter(Boolean).join(' ');
     el.classes = (cls ? cls + ' ' : '') + containerCls;
-
     if (el.data.icon) delete el.data.icon;
     el.classes = el.classes.replace(/\bhas-icon\b/g, '').trim();
-
     return el;
   });
 }
 
-/** Add icons to non-container nodes only (has-icon class if icon present). */
-function injectIcons(elements){
+function injectIcons(elements) {
   return (elements || []).map(el => {
     if (!el || !el.data || el.group !== 'nodes') return el;
     const isContainer = /\bcontainer\b/.test(el.classes || '');
-    if (isContainer) { if (el.data.icon) delete el.data.icon; return el; }
+    if (isContainer) {
+      if ('icon' in el.data) delete el.data.icon;
+      el.classes = (el.classes || '').replace(/\bhas-icon\b/g, '').trim();
+      return el;
+    }
     const t = el.data.type;
-    const icon = iconFor(t);
+    const icon = ICONS[t];
     if (icon) {
       el.data.icon = icon;
       const cls = (el.classes || '').trim();
       el.classes = (cls ? cls + ' ' : '') + 'has-icon';
     } else {
-      if ('icon' in el.data && (!el.data.icon || !String(el.data.icon).trim())) delete el.data.icon;
+      if (!el.data.icon) delete el.data.icon;
+      el.classes = (el.classes || '').replace(/\bhas-icon\b/g, '').trim();
     }
     return el;
   });
 }
 
-/** Remove edges that reference non-existent nodes. Also dedupe by id. */
 function sanitizeElements(elements) {
   const nodes = [], edges = [];
   for (const el of elements || []) {
@@ -289,42 +422,15 @@ function sanitizeElements(elements) {
   const cleaned = [...nodeMap.values(), ...edgeMap.values()];
   if (dropped > 0) {
     console.warn('[ui] filtered invalid edges:', dropped);
-    const w = document.getElementById('warnings');
-    if (w) {
-      const a = document.createElement('sl-alert'); a.variant='warning'; a.closable=true;
-      a.innerText = `Filtered ${dropped} edges referencing missing nodes. Check ID consistency.`;
-      w.appendChild(a);
-      const det = [...document.querySelectorAll('sl-details')].find(d => d.getAttribute('summary') === 'Warnings');
-      if (det) det.setAttribute('open', '');
-    }
+    pushWarning(`Filtered ${dropped} edges referencing missing nodes. Check ID consistency.`);
   }
   return cleaned;
 }
 
-function escapeHtml(s){
-  return s.replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
-}
-
-function renderDetails(data){
-  const el = document.getElementById('details');
-  const links = (data?.details && Array.isArray(data.details.links)) ? data.details.links : [];
-  let html = '';
-  if (links.length) {
-    html += '<div style="margin-bottom:8px"><strong>Downloads</strong><ul style="margin:6px 0 10px 18px">';
-    for (const l of links) {
-      const t = String(l.title || 'download');
-      const href = String(l.href || '#');
-      html += `<li><a href="${href}" target="_blank" rel="noopener">${t}</a></li>`;
-    }
-    html += '</ul></div>';
-  }
-  html += `<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
-  el.innerHTML = html;
-}
-
-// ---------- Progress UI ----------
-
-function ensureProgressBar(){
+/* ---------------------
+   Progress UI
+---------------------- */
+function ensureProgressBar() {
   let wrap = document.getElementById('progress-wrap');
   if (wrap) return wrap;
   wrap = document.createElement('div');
@@ -353,22 +459,18 @@ function ensureProgressBar(){
   document.body.appendChild(wrap);
   return wrap;
 }
-
-function showProgress(){
+function showProgress() {
   const wrap = ensureProgressBar();
   wrap.style.display = 'block';
   const bar = document.getElementById('progress-bar');
-  bar.value = 0;
-  bar.setAttribute('label', 'Starting…');
+  if (bar) { bar.value = 0; bar.setAttribute('label', 'Starting…'); }
 }
-
-function hideProgress(){
+function hideProgress() {
   const wrap = document.getElementById('progress-wrap');
   if (wrap) wrap.style.display = 'none';
   if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
 }
-
-function newRid(){
+function newRid() {
   const buf = new Uint8Array(16);
   crypto.getRandomValues(buf);
   buf[6] = (buf[6] & 0x0f) | 0x40;
@@ -376,8 +478,7 @@ function newRid(){
   const hex = [...buf].map(b => b.toString(16).padStart(2, '0')).join('');
   return `${hex.substr(0,8)}-${hex.substr(8,4)}-${hex.substr(12,4)}-${hex.substr(16,4)}-${hex.substr(20)}`;
 }
-
-async function pollProgress(rid){
+async function pollProgress(rid) {
   try {
     const res = await fetch(`/progress?rid=${encodeURIComponent(rid)}`, { cache: 'no-store' });
     if (!res.ok) return;
@@ -395,26 +496,87 @@ async function pollProgress(rid){
       setTimeout(hideProgress, 600);
     }
   } catch (e) {
-    // ignore transient polling errors
+    // ignore
   }
 }
 
-// ---- Enumerate helpers ----
-async function postEnumerate(rid){
+/* ---------------------
+   API
+---------------------- */
+async function postEnumerate(rid) {
   const ak = (document.getElementById('ak')?.value || '').trim();
   const sk = (document.getElementById('sk')?.value || '').trim();
   const payload = { access_key_id: ak, secret_access_key: sk, rid };
-
   const res = await fetch('/enumerate', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload)
   });
   const data = await res.json().catch(() => null);
   return { ok: res.ok, status: res.status, data };
 }
 
-// ---- Enumerate button handler ----
-async function handleEnumerateClick(){
+/* ---------------------
+   Init Cytoscape
+---------------------- */
+function initCySafe() {
+  console.log('[ui] initCy');
+  if (!window.cytoscape) throw new Error('Cytoscape failed to load.');
+  const container = document.getElementById('cy');
+  if (!container) throw new Error('#cy container not found');
+
+  registerCytoscapePlugins();
+
+  cy = cytoscape({
+    container,
+    elements: [],
+    minZoom: 0.25,
+    maxZoom: 2.5,
+    pixelRatio: 1,
+    boxSelectionEnabled: false,
+    style: [...NODE_STYLES, ...EDGE_STYLES],
+    layout: {
+      name: (window.cytoscapeCoseBilkent ? 'cose-bilkent' : 'breadthfirst'),
+      quality: 'default',
+      animate: false,
+      nodeRepulsion: 80000,
+      idealEdgeLength: 220,
+      gravity: 0.25,
+      numIter: 1200,
+      tile: true
+    }
+  });
+
+  if (typeof cy.minimap === 'function') {
+    try { cy.minimap({}); } catch {}
+  }
+
+  // IMPORTANT CHANGE: Do NOT fallback to all findings when a selection has none
+  cy.on('select', 'node,edge', (e) => {
+    const d = e.target.data();
+    renderDetails(d);
+    const sel = getFindingsForElement(d);
+    console.log('[ui] selection findings:', d.id, d.type, d.severity, '->', Array.isArray(sel) ? sel.length : 0);
+    renderFindings(sel);  // <-- render exactly the element's findings (may be empty)
+  });
+
+  // When nothing is selected, show the full list
+  cy.on('unselect', () => {
+    document.getElementById('details').innerHTML = '<div class="muted">Select a node or edge.</div>';
+    renderFindings(window.lastFindings || []);
+  });
+
+  const resetBtn = document.getElementById('btn-reset');
+  if (resetBtn) resetBtn.addEventListener('click', () => cy.fit(null, 60));
+
+  const rect = cy.container().getBoundingClientRect();
+  console.log('[ui] cy container rect:', rect);
+}
+
+/* ---------------------
+   Enumerate handler
+---------------------- */
+async function handleEnumerateClick() {
   console.log('[ui] Enumerate clicked');
   const ak = (document.getElementById('ak')?.value || '').trim();
   const sk = (document.getElementById('sk')?.value || '').trim();
@@ -435,6 +597,16 @@ async function handleEnumerateClick(){
     console.log('[ui] elements count:', elements.length);
     window.lastElements = elements;
 
+    // Findings
+    window.lastFindings  = Array.isArray(data?.findings) ? data.findings : [];
+    window.findingsById  = data?.findings_by_id || indexFindings(window.lastFindings);
+    console.log('[ui] findings total:', window.lastFindings.length,
+                'indexed ids:', Object.keys(window.findingsById || {}).slice(0, 5));
+
+    // Show all findings by default (nothing selected)
+    renderFindings(window.lastFindings);
+
+    // Graph
     elements = sanitizeElements(elements);
     elements = markContainers(elements);
     elements = injectIcons(elements);
@@ -445,7 +617,13 @@ async function handleEnumerateClick(){
 
     const layout = cy.layout({
       name: (window.cytoscapeCoseBilkent ? 'cose-bilkent' : 'breadthfirst'),
-      quality: 'default', animate:false, nodeRepulsion:80000, idealEdgeLength:220, gravity:0.25, numIter:1200, tile:true
+      quality: 'default',
+      animate: false,
+      nodeRepulsion: 80000,
+      idealEdgeLength: 220,
+      gravity: 0.25,
+      numIter: 1200,
+      tile: true
     });
     layout.run();
     layout.on('layoutstop', () => { cy.fit(null, 60); });
@@ -453,8 +631,8 @@ async function handleEnumerateClick(){
 
     console.log('[ui] nodes:', cy.nodes().size(), 'edges:', cy.edges().size(),
                 'rect:', cy.container().getBoundingClientRect());
-    renderFindings(data.findings || []); renderWarnings(data.warnings || []);
-  } catch (e){
+    renderWarnings(data.warnings || []);
+  } catch (e) {
     renderWarnings([String(e)]);
   } finally {
     btn.loading = false;
@@ -462,20 +640,29 @@ async function handleEnumerateClick(){
   }
 }
 
-function bindUI(){
+/* ---------------------
+   Bind & boot
+---------------------- */
+function bindUI() {
   console.log('[ui] bindUI');
   const btn = document.getElementById('btn-enumerate');
   if (!btn) { console.error('[ui] enumerate button not found'); return; }
-  Promise.all([ customElements.whenDefined('sl-button'), customElements.whenDefined('sl-input'), customElements.whenDefined('sl-progress-bar') ])
-    .then(() => {
-      console.log('[ui] custom elements ready; binding click handlers');
-      btn.addEventListener('click', handleEnumerateClick);
-      btn.addEventListener('sl-click', handleEnumerateClick);
-      ['ak','sk'].forEach(id => {
-        const el = document.getElementById(id);
-        el.addEventListener('keydown', e => { if (e.key === 'Enter') handleEnumerateClick(); });
-      });
-    }).catch(() => { btn.addEventListener('click', handleEnumerateClick); });
+  Promise.all([
+    customElements.whenDefined('sl-button'),
+    customElements.whenDefined('sl-input'),
+    customElements.whenDefined('sl-progress-bar'),
+    customElements.whenDefined('sl-alert')   // ensure alert is defined before we use it
+  ]).then(() => {
+    console.log('[ui] custom elements ready; binding click handlers');
+    btn.addEventListener('click', handleEnumerateClick);
+    btn.addEventListener('sl-click', handleEnumerateClick);
+    ['ak', 'sk'].forEach(id => {
+      const el = document.getElementById(id);
+      el && el.addEventListener('keydown', e => { if (e.key === 'Enter') handleEnumerateClick(); });
+    });
+  }).catch(() => {
+    btn.addEventListener('click', handleEnumerateClick);
+  });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -483,4 +670,5 @@ document.addEventListener('DOMContentLoaded', () => {
   bindUI();
   try { initCySafe(); } catch (e) { renderWarnings([String(e)]); }
   legend();
+  ensureFindingsContainer();
 });
