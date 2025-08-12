@@ -71,11 +71,11 @@ const ICONS = {
    Containers (pale fills)
 ---------------------- */
 const CONTAINER_COLOR = {
-  vpc:         { fill: 'rgba(16, 185, 129, 0.06)',  border: '#10b981' },
-  subnet:      { fill: 'rgba(59, 130, 246, 0.06)',  border: '#3b82f6' },
-  eks_cluster: { fill: 'rgba(245, 158, 11, 0.06)',  border: '#f59e0b' },
-  ecs_cluster: { fill: 'rgba(147, 51, 234, 0.06)',  border: '#9333ea' },
-  rds_cluster: { fill: 'rgba(99, 102, 241, 0.06)',  border: '#6366f1' }
+  vpc:          { fill: 'rgba(223, 252, 243, 0.06)',  border: '#10b981' }, // emerald
+  subnet:       { fill: 'rgba(228, 238, 254, 0.06)',  border: '#3b82f6' }, // blue
+  eks_cluster:  { fill: 'rgba(245, 158, 11, 0.06)',  border: '#f59e0b' }, // amber
+  ecs_cluster:  { fill: 'rgba(147, 51, 234, 0.06)',  border: '#9333ea' }, // purple
+  rds_cluster:  { fill: 'rgba(99, 102, 241, 0.06)',  border: '#6366f1' }  // indigo
 };
 
 /* ---------------------
@@ -543,6 +543,7 @@ function initCySafe() {
     elements: [],
     minZoom: 0.25,
     maxZoom: 2.5,
+    wheelSensitivity: 0.1,
     pixelRatio: 1,
     boxSelectionEnabled: false,
     style: [...NODE_STYLES, ...EDGE_STYLES],
