@@ -345,7 +345,7 @@ def analyze(elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     enc_conf = enc_resp.get("ServerSideEncryptionConfiguration") or enc_resp.get("Rules")
             if not enc_conf:
                 _mark_issue(n, "high")
-            _add_finding(findings, n, "S3 default encryption not enabled", "No default SSE configuration", "HIGH")
+                _add_finding(findings, n, "S3 default encryption not enabled", "No default SSE configuration", "HIGH")
             ver = details.get("Versioning") or details.get("versioning") or {}
             if not bool(ver.get("Status") == "Enabled" or ver.get("enabled") is True):
                 _mark_issue(n, "high")
