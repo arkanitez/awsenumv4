@@ -6,6 +6,7 @@ from botocore.exceptions import ClientError
 from ..graph import Graph
 from ..iam_edges import mk_id
 
+# Keep existing retry profile but allow main to monkey-patch via module-level CFG
 CFG = BotoConfig(retries={'max_attempts': 8, 'mode': 'adaptive'}, read_timeout=20, connect_timeout=10)
 
 def _resolve_bucket_region(s3_client, name: str) -> Optional[str]:
@@ -13,7 +14,7 @@ def _resolve_bucket_region(s3_client, name: str) -> Optional[str]:
         loc = s3_client.get_bucket_location(Bucket=name).get('LocationConstraint')
         if loc in (None, ''):
             return 'us-east-1'
-        if loc == 'EU':          # legacy alias
+        if loc == 'EU':
             return 'eu-west-1'
         return loc
     except Exception:
@@ -37,6 +38,10 @@ def _acl_to_canned(acl_resp: Dict[str, Any]) -> str:
         return 'private'
 
 def enumerate(session: boto3.Session, account_id: str, region: str, g: Graph, warnings: List[str]) -> None:
+    """
+    Region-aware S3 enumeration that normalizes details for findings.py.
+    IMPORTANT: Graph has no update_node(), so we build details first and call add_node() once.
+    """
     s3_global = session.client('s3', config=CFG)  # list_buckets is global
     try:
         res = s3_global.list_buckets()
@@ -44,27 +49,28 @@ def enumerate(session: boto3.Session, account_id: str, region: str, g: Graph, wa
         warnings.append(f's3 list_buckets: {e.response.get("Error", {}).get("Code")}')
         return
 
-    for b in res.get('Buckets', []) or []:
+    buckets = res.get('Buckets', []) or []
+    for b in buckets:
         name = b.get('Name')
         if not name:
             continue
 
+        # Resolve home region; use region-scoped client for per-bucket APIs
         loc = _resolve_bucket_region(s3_global, name) or region or 'us-east-1'
         s3 = session.client('s3', region_name=loc, config=CFG)
 
-        node_id = mk_id('s3', account_id, loc, name)
-        g.add_node(node_id, name, 's3_bucket', loc, details={'name': name})
+        details: Dict[str, Any] = {'name': name}
 
-        details: Dict[str, Any] = {}
-
-        # Policy status (+ public boolean the findings code looks for)
+        # Policy status (+ public flag)
         try:
             pst = s3.get_bucket_policy_status(Bucket=name)
-            details['PolicyStatus'] = pst.get('PolicyStatus') or {}
-            details['policy_allows_public'] = bool((details['PolicyStatus'] or {}).get('IsPublic'))
+            ps = pst.get('PolicyStatus') or {}
+            details['PolicyStatus'] = ps
+            details['policy_allows_public'] = bool(ps.get('IsPublic'))
+            details['PolicyAllowsPublic'] = bool(ps.get('IsPublic'))
         except ClientError as e:
             code = e.response.get('Error', {}).get('Code')
-            if code not in ('NoSuchBucket', 'AccessDenied', 'NoSuchBucketPolicy'):
+            if code not in ('NoSuchBucket','AccessDenied','NoSuchBucketPolicy'):
                 warnings.append(f's3 get_bucket_policy_status({name}): {code}')
 
         # Policy (optional)
@@ -76,16 +82,17 @@ def enumerate(session: boto3.Session, account_id: str, region: str, g: Graph, wa
             if code not in ('NoSuchBucketPolicy','NoSuchBucket','AccessDenied'):
                 warnings.append(f's3 get_bucket_policy({name}): {code}')
 
-        # Public Access Block — flattened to match findings.py
+        # Public Access Block — flattened
         try:
             pab = s3.get_public_access_block(Bucket=name)
             details['public_access_block'] = pab.get('PublicAccessBlockConfiguration') or {}
+            details['PublicAccessBlock'] = details['public_access_block']
         except ClientError as e:
             code = e.response.get('Error', {}).get('Code')
             if code not in ('NoSuchPublicAccessBlockConfiguration','NoSuchBucket','AccessDenied'):
                 warnings.append(f's3 get_public_access_block({name}): {code}')
 
-        # Default encryption — store both full resp and inner config key
+        # Default encryption — store both AWS wrapper and the inner config
         try:
             enc = s3.get_bucket_encryption(Bucket=name)
             details['encryption'] = enc
@@ -97,13 +104,13 @@ def enumerate(session: boto3.Session, account_id: str, region: str, g: Graph, wa
             if code not in ('ServerSideEncryptionConfigurationNotFoundError','NoSuchBucket','AccessDenied'):
                 warnings.append(f's3 get_bucket_encryption({name}): {code}')
 
-        # Versioning — normalize shape to what findings.py expects
+        # Versioning — normalize to include enabled flag
         try:
             ver = s3.get_bucket_versioning(Bucket=name) or {}
             if ver.get('Status') == 'Enabled':
                 details['Versioning'] = {'Status': 'Enabled', 'enabled': True}
             else:
-                details['Versioning'] = ver
+                details['Versioning'] = {**ver, 'enabled': ver.get('Status') == 'Enabled'}
         except ClientError as e:
             code = e.response.get('Error', {}).get('Code')
             if code not in ('NoSuchBucket','AccessDenied'):
@@ -121,7 +128,7 @@ def enumerate(session: boto3.Session, account_id: str, region: str, g: Graph, wa
             if code not in ('NoSuchBucket','AccessDenied'):
                 warnings.append(f's3 get_bucket_logging({name}): {code}')
 
-        # ACL — compress to a canned label
+        # ACL summary
         try:
             acl = s3.get_bucket_acl(Bucket=name) or {}
             details['acl'] = _acl_to_canned(acl)
@@ -130,7 +137,7 @@ def enumerate(session: boto3.Session, account_id: str, region: str, g: Graph, wa
             if code not in ('NoSuchBucket','AccessDenied'):
                 warnings.append(f's3 get_bucket_acl({name}): {code}')
 
-        # Best-effort extras
+        # Optional extras
         for getter, key in (
             (s3.get_bucket_cors, 'CORS'),
             (s3.get_bucket_website, 'Website'),
@@ -142,11 +149,13 @@ def enumerate(session: boto3.Session, account_id: str, region: str, g: Graph, wa
             except ClientError:
                 pass
 
-        g.update_node(node_id, details=details)
+        # Add the node ONCE with full details
+        node_id = mk_id('s3', account_id, loc, name)
+        g.add_node(node_id, name, 's3_bucket', loc, details=details)
 
-        # Notification → Lambda edges (region-aware client)
+        # Notification → Lambda edges
         try:
-            notif = s3.get_bucket_notification_configuration(Bucket=name)
+            notif = s3.get_bucket_notification_configuration(Bucket=name) or {}
             for cfg in notif.get('LambdaFunctionConfigurations', []) or []:
                 lam_arn = cfg.get('LambdaFunctionArn')
                 if lam_arn:
