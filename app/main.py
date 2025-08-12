@@ -15,23 +15,12 @@ from starlette.concurrency import run_in_threadpool
 import orjson
 
 from .graph import Graph
-from .findings import analyze as analyze_findings  # findings engine
 
-from .enumerators import (
-    ec2, elbv2, lambda_ as enum_lambda, apigwv2, s3, sqs_sns,
-    dynamodb, rds, eks, ecs, eventbridge, cloudfront
-)
-
-try:
-    from .reachability import derive_reachability
-except Exception:
-    def derive_reachability(g: Graph):
-        return []
+# --------------------------
+# Config / helpers
+# --------------------------
 
 DEFAULT_REGION = os.environ.get("DEFAULT_REGION", "ap-southeast-1")
-
-def json_response(obj: Any) -> JSONResponse:
-    return JSONResponse(orjson.loads(orjson.dumps(obj)))
 
 def _boto_cfg() -> Config:
     return Config(retries={'max_attempts': 6, 'mode': 'adaptive'}, user_agent_extra='awsenumv4')
@@ -68,42 +57,37 @@ async def index():
 # Progress tracking
 # --------------------------
 
-_PROGRESS: Dict[str, Dict[str, Any]] = {}
+_PROGRESS: Dict[str, Any] = {}
 _PROGRESS_LOCK = Lock()
 
-def _progress_init(rid: str, total: int, region: str) -> None:
+def _progress_start(rid: str, total: int, stage: str):
     with _PROGRESS_LOCK:
-        _PROGRESS[rid] = {"rid": rid, "total": max(1, int(total)), "current": 0,
-                          "stage": f"Initializing ({region})", "done": False, "regions": [region]}
+        _PROGRESS[rid] = {"rid": rid, "total": max(1, total), "current": 0, "stage": stage, "done": False}
 
-def _progress_add_total(rid: str, delta: int) -> None:
-    if not rid: return
+def _progress_update(rid: str, current: int):
     with _PROGRESS_LOCK:
-        st = _PROGRESS.get(rid)
-        if st: st["total"] = max(1, int(st.get("total", 1)) + int(delta))
+        if rid in _PROGRESS:
+            _PROGRESS[rid]["current"] = max(0, current)
 
-def _progress_stage(rid: str, stage: str) -> None:
-    if not rid: return
+def _progress_stage(rid: str, stage: str):
     with _PROGRESS_LOCK:
-        st = _PROGRESS.get(rid)
-        if st: st["stage"] = stage
+        if rid in _PROGRESS:
+            _PROGRESS[rid]["stage"] = stage
 
-def _progress_tick(rid: str, stage: Optional[str] = None) -> None:
-    if not rid: return
+def _progress_tick(rid: str, stage: Optional[str] = None, inc: int = 1):
     with _PROGRESS_LOCK:
-        st = _PROGRESS.get(rid)
-        if st:
-            st["current"] = min(st.get("total", 1), st.get("current", 0) + 1)
-            if stage: st["stage"] = stage
+        if rid in _PROGRESS:
+            _PROGRESS[rid]["current"] = min(_PROGRESS[rid]["total"], _PROGRESS[rid]["current"] + inc)
+            if stage:
+                _PROGRESS[rid]["stage"] = stage
 
-def _progress_done(rid: str) -> None:
-    if not rid: return
+def _progress_finish(rid: str, stage: Optional[str] = None):
     with _PROGRESS_LOCK:
-        st = _PROGRESS.get(rid)
-        if st:
-            st["current"] = st.get("total", 1)
-            st["stage"] = "Completed"
-            st["done"] = True
+        if rid in _PROGRESS:
+            _PROGRESS[rid]["current"] = _PROGRESS[rid]["total"]
+            _PROGRESS[rid]["done"] = True
+            if stage:
+                _PROGRESS[rid]["stage"] = stage
 
 @app.get('/progress')
 async def progress_api(rid: str = Query(...)):
@@ -114,168 +98,34 @@ async def progress_api(rid: str = Query(...)):
         return json_response(state)
 
 # --------------------------
-# Download endpoints (unchanged)
+# JSON helpers
 # --------------------------
 
-@app.get('/download/lambda-code')
-async def download_lambda_code(
-    region: str = Query(...),
-    functionArn: Optional[str] = Query(None),
-    functionName: Optional[str] = Query(None),
-    ak: Optional[str] = Query(None),
-    sk: Optional[str] = Query(None),
-    st: Optional[str] = Query(None),
-):
-    sess = build_session(ak, sk, st, region)
-    lam = sess.client('lambda', region_name=region, config=_boto_cfg())
-    fn = functionArn or functionName
-    if not fn:
-        return JSONResponse({"error": "functionArn or functionName required"}, status_code=400)
-    try:
-        meta = lam.get_function(FunctionName=fn)
-        loc = _safe_get(meta, "Code", "Location")
-        if not loc:
-            return JSONResponse({"error": "No code location available"}, status_code=404)
-        return RedirectResponse(url=loc, status_code=307)
-    except Exception as e:
-        return JSONResponse({"error": f"lambda get_function failed: {e}"}, status_code=500)
-
-@app.get('/download/lambda-layer')
-async def download_lambda_layer(
-    region: str = Query(...),
-    layerArn: str = Query(...),
-    version: str = Query(...),
-    ak: Optional[str] = Query(None),
-    sk: Optional[str] = Query(None),
-    st: Optional[str] = Query(None),
-):
-    sess = build_session(ak, sk, st, region)
-    lam = sess.client('lambda', region_name=region, config=_boto_cfg())
-    try:
-        out = lam.get_layer_version(LayerName=layerArn, VersionNumber=int(version))
-        loc = _safe_get(out, "Content", "Location")
-        if not loc:
-            return JSONResponse({"error": "No layer content location available"}, status_code=404)
-        return RedirectResponse(url=loc, status_code=307)
-    except Exception as e:
-        return JSONResponse({"error": f"lambda get_layer_version failed: {e}"}, status_code=500)
-
-@app.get('/download/apigwv2-export')
-async def download_apigwv2_export(
-    region: str = Query(...),
-    apiId: str = Query(...),
-    ak: Optional[str] = Query(None),
-    sk: Optional[str] = Query(None),
-    st: Optional[str] = Query(None),
-):
-    sess = build_session(ak, sk, st, region)
-    agw = sess.client('apigatewayv2', region_name=region, config=_boto_cfg())
-    bundle: Dict[str, Any] = {}
-    try:
-        bundle['api'] = agw.get_api(ApiId=apiId)
-        routes: List[Dict[str, Any]] = []; token = None
-        while True:
-            kw = {"ApiId": apiId}; 
-            if token: kw["NextToken"] = token
-            resp = agw.get_routes(**kw)
-            routes.extend(resp.get("Items", []))
-            token = resp.get("NextToken")
-            if not token: break
-        bundle['routes'] = routes
-        integrations: List[Dict[str, Any]] = []; token = None
-        while True:
-            kw = {"ApiId": apiId}
-            if token: kw["NextToken"] = token
-            resp = agw.get_integrations(**kw)
-            integrations.extend(resp.get("Items", []))
-            token = resp.get("NextToken")
-            if not token: break
-        bundle['integrations'] = integrations
-        stages = agw.get_stages(ApiId=apiId).get("Items", [])
-        bundle['stages'] = stages
-        data = orjson.dumps(bundle)
-        filename = f"apigwv2-{apiId}.json"
-        return Response(content=data, media_type="application/json",
-                        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
-    except Exception as e:
-        return JSONResponse({"error": f"apigatewayv2 export failed: {e}"}, status_code=500)
-
-@app.get('/download/dynamodb-table')
-async def download_dynamodb_table(
-    region: str = Query(...),
-    tableArn: Optional[str] = Query(None),
-    tableName: Optional[str] = Query(None),
-    ak: Optional[str] = Query(None),
-    sk: Optional[str] = Query(None),
-    st: Optional[str] = Query(None),
-):
-    if not tableArn and not tableName:
-        return JSONResponse({"error": "tableArn or tableName required"}, status_code=400)
-    sess = build_session(ak, sk, st, region)
-    ddb = sess.client('dynamodb', region_name=region, config=_boto_cfg())
-    try:
-        name = tableName
-        if not name and tableArn:
-            if ":table/" in tableArn:
-                name = tableArn.split(":table/")[-1].split("/")[0]
-            elif ":table:" in tableArn:
-                name = tableArn.split(":table:")[-1].split("/")[0]
-        if not name:
-            return JSONResponse({"error": "could not parse table name"}, status_code=400)
-        desc = ddb.describe_table(TableName=name)
-        data = orjson.dumps(desc)
-        filename = f"dynamodb-{name}.json"
-        return Response(content=data, media_type="application/json",
-                        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
-    except Exception as e:
-        return JSONResponse({"error": f"dynamodb describe_table failed: {e}"}, status_code=500)
-
-@app.get('/download/cloudfront-config')
-async def download_cloudfront_config(
-    id: str = Query(...),
-    ak: Optional[str] = Query(None),
-    sk: Optional[str] = Query(None),
-    st: Optional[str] = Query(None),
-):
-    sess = build_session(ak, sk, st, "us-east-1")
-    cf = sess.client('cloudfront', config=_boto_cfg())
-    try:
-        out = cf.get_distribution_config(Id=id)
-        data = orjson.dumps(out)
-        filename = f"cloudfront-{id}-config.json"
-        return Response(content=data, media_type="application/json",
-                        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
-    except Exception as e:
-        return JSONResponse({"error": f"cloudfront get_distribution_config failed: {e}"}, status_code=500)
-
-@app.get('/download/console')
-async def open_in_console(arn: str = Query(...)):
-    try:
-        parts = arn.split(':')
-        if len(parts) < 6:
-            return JSONResponse({"error": "unsupported arn format"}, status_code=400)
-        service = parts[2]; region = parts[3]
-        rest = ':'.join(parts[5:])
-        url = None
-        if service == 'lambda':
-            name = rest.split('function:')[-1]
-            url = f"https://{region}.console.aws.amazon.com/lambda/home?region={region}#/functions/{name}"
-        elif service == 'dynamodb':
-            if 'table/' in rest:
-                name = rest.split('table/')[-1].split('/')[0]
-                url = f"https://{region}.console.aws.amazon.com/dynamodbv2/home?region={region}#table?name={name}"
-        elif service == 'cloudfront':
-            if '/distribution/' in arn:
-                did = arn.split('/distribution/')[-1]
-                url = f"https://console.aws.amazon.com/cloudfront/v3/home#/distributions/{did}"
-        if url: return RedirectResponse(url=url, status_code=302)
-        return JSONResponse({"error": "unsupported arn for console deeplink"}, status_code=400)
-    except Exception as e:
-        return JSONResponse({"error": f"console deeplink failed: {e}"}, status_code=500)
+def json_response(data: Any, status_code: int = 200) -> JSONResponse:
+    return JSONResponse(orjson.loads(orjson.dumps(data)), status_code=status_code)
 
 # --------------------------
-# Enumeration helpers
+# Enumerators & orchestration
 # --------------------------
+
+from .enumerators import (
+    ec2, elbv2, lambda_ as enum_lambda, apigwv2, s3, sqs_sns,
+    dynamodb, rds, eks, ecs, eventbridge, cloudfront
+)
+
+try:
+    from .reachability import derive_reachability
+except Exception:
+    def derive_reachability(g: Graph):
+        return []
+
+DEFAULT_REGION = os.environ.get("DEFAULT_REGION", "ap-southeast-1")
+
+try:
+    from .findings import analyze_findings
+except Exception:
+    def analyze_findings(elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return []
 
 SERVICES_ORDER: List[Tuple[str, Any]] = [
     ('ec2', ec2.enumerate),
@@ -293,12 +143,11 @@ SERVICES_ORDER: List[Tuple[str, Any]] = [
 ]
 
 def _inject_creds_into_existing_links(elements: List[Dict[str, Any]], ak: Optional[str], sk: Optional[str], st: Optional[str]) -> None:
-    if not ak and not sk and not st: return
     for el in elements:
         if not isinstance(el, dict) or el.get("group") != "nodes": continue
-        details = (el.get("data") or {}).get("details") or {}
-        links = details.get("links")
-        if not isinstance(links, list): continue
+        data = el.get("data") or {}
+        details = data.get("details") or {}
+        links = details.get("links") or []
         for link in links:
             href = link.get("href")
             if not isinstance(href, str) or not href.startswith("/download/"): continue
@@ -326,17 +175,12 @@ def _augment_download_links(elements: List[Dict[str, Any]], ak: Optional[str], s
                 else:
                     href += f"?ak={quote_plus(ak or '')}&sk={quote_plus(sk or '')}"
                     if st: href += f"&st={quote_plus(st)}"
-            links.append({"title": title, "href": href, "download": download})
+            links.append({"title": title, "href": href, "download": bool(download)})
 
-        arn = details.get("arn")
-        if arn and isinstance(arn, str):
-            add("Open in AWS Console", f"/download/console?arn={quote_plus(arn)}")
         if ntype == "lambda":
-            fn_arn = details.get("arn"); fn_name = details.get("name") or data.get("label")
-            if fn_arn or fn_name:
-                qs = f"region={quote_plus(region)}"
-                if fn_arn: qs += f"&functionArn={quote_plus(fn_arn)}"
-                if fn_name: qs += f"&functionName={quote_plus(fn_name)}"
+            fn_arn = details.get("arn") or data.get("label")
+            if fn_arn:
+                qs = f"region={quote_plus(region)}&functionArn={quote_plus(fn_arn)}"
                 add("Download Lambda code (zip)", f"/download/lambda-code?{qs}")
         if ntype == "lambda_layer":
             layer_arn = details.get("arn") or data.get("label")
@@ -356,6 +200,12 @@ def _augment_download_links(elements: List[Dict[str, Any]], ak: Optional[str], s
                 if tab_arn: qs += f"&tableArn={quote_plus(tab_arn)}"
                 if tab_name: qs += f"&tableName={quote_plus(tab_name)}"
                 add("Download DynamoDB table (describe json)", f"/download/dynamodb-table?{qs}")
+        # NEW: S3 bucket config download link
+        if ntype == "s3_bucket":
+            bucket_name = details.get("name") or data.get("label")
+            if bucket_name:
+                qs = f"region={quote_plus(region)}&bucket={quote_plus(bucket_name)}"
+                add("Download S3 bucket config (json)", f"/download/s3-config?{qs}")
         if ntype == "cloudfront":
             dist_id = details.get("id") or _id_last(data.get("id") or "")
             if dist_id:
@@ -382,16 +232,19 @@ def _enumerate_one_region(sess: boto3.Session, account_id: str, region: str, pro
     try:
         _progress_stage(progress_rid, f"{region}: reachability")
         for e in derive_reachability(g): g.add_edge(**e)
-    except Exception as e:
-        warnings.append(f'derive_reachability failed: {e}')
-    finally:
         _progress_tick(progress_rid, f"{region}: reachability ✓")
+    except Exception as e:
+        warnings.append(f'reachability failed: {e}')
 
-    elements: List[Dict[str, Any]] = list(g.elements())
+    elements = list(g.elements())
 
-    _progress_stage(progress_rid, f"{region}: findings")
-    findings = analyze_findings(elements)  # mutates elements (adds classes/severity)
-    _progress_tick(progress_rid, f"{region}: findings ✓")
+    try:
+        _progress_stage(progress_rid, f"{region}: findings")
+        findings = analyze_findings(elements)  # mutates elements (adds classes/severity)
+        _progress_tick(progress_rid, f"{region}: findings ✓")
+    except Exception as e:
+        warnings.append(f'findings failed: {e}')
+        findings = []
 
     try:
         total_nodes = sum(1 for el in elements if 'source' not in (el.get('data') or {}))
@@ -405,74 +258,299 @@ def _enumerate_one_region(sess: boto3.Session, account_id: str, region: str, pro
 def _list_enabled_regions(sess: boto3.Session) -> List[str]:
     try:
         ec2c = sess.client('ec2', config=_boto_cfg())
-        out = ec2c.describe_regions(AllRegions=False)
-        return sorted([r['RegionName'] for r in out.get('Regions', [])])
+        out = []
+        resp = ec2c.describe_regions(AllRegions=True)
+        for r in resp.get('Regions', []):
+            if r.get('OptInStatus') in ('opt-in-not-required', 'opted-in'):
+                out.append(r.get('RegionName'))
+        return sorted(out)
     except Exception:
-        return ['us-east-1','us-east-2','us-west-1','us-west-2','eu-west-1','eu-west-2','eu-central-1','ap-south-1','ap-southeast-1','ap-southeast-2','ap-northeast-1']
+        return [DEFAULT_REGION]
 
 @app.post('/enumerate')
 async def enumerate_api(req: Request):
-    payload = await req.json()
-    ak = (payload.get('access_key_id') or '').strip() or None
-    sk = (payload.get('secret_access_key') or '').strip() or None
-    st = (payload.get('session_token') or '').strip() or None
-    region = (payload.get('region') or DEFAULT_REGION).strip()
-    scan_all = bool(payload.get('scan_all'))
-    rid = (payload.get('rid') or '').strip() or str(uuid.uuid4())
+    body = await req.json()
+    ak = (body.get('access_key_id') or '').strip()
+    sk = (body.get('secret_access_key') or '').strip()
+    st = (body.get('session_token') or '').strip() or None
+    start_region = (body.get('region') or DEFAULT_REGION).strip()
+    rid = (body.get('rid') or str(uuid.uuid4())).strip()
+    scan_all: bool = bool(body.get('scan_all') or False)
 
-    per_region_steps = len(SERVICES_ORDER) + 2
-    _progress_init(rid, per_region_steps, region)
-    _progress_stage(rid, f"Starting in {region}")
+    if not ak or not sk:
+        return json_response({"error": "Missing access_key_id or secret_access_key"}, status_code=400)
 
-    def do_enumeration() -> Dict[str, Any]:
-        sess = build_session(ak, sk, st, region)
-        warnings: List[str] = []
-        account_id = 'self'
-        try:
-            me = sess.client('sts', config=_boto_cfg()).get_caller_identity()
-            account_id = me.get('Account') or 'self'
-        except Exception as e:
-            warnings.append(f'sts get_caller_identity failed: {e}')
+    sess = build_session(ak, sk, st, start_region)
 
-        elements, w_reg, findings = _enumerate_one_region(sess, account_id, region, progress_rid=rid)
-        warnings.extend(w_reg)
-        scanned_regions = [region]
+    # validate creds
+    try:
+        sts = sess.client('sts', region_name=start_region, config=_boto_cfg())
+        ident = sts.get_caller_identity()
+        account_id = ident.get('Account') or '000000000000'
+    except Exception as e:
+        return json_response({"error": f"Credential validation failed: {e}"}, status_code=401)
 
-        if scan_all and not elements:
-            regions = [r for r in _list_enabled_regions(sess) if r != region]
-            extra_total = (len(regions)) * (len(SERVICES_ORDER) + 2)
-            _progress_add_total(rid, extra_total)
-            for r in regions:
-                _progress_stage(rid, f"Switching region: {r}")
-                rsess = build_session(ak, sk, st, r)
-                el2, w2, f2 = _enumerate_one_region(rsess, account_id, r, progress_rid=rid)
-                elements.extend(el2); warnings.extend(w2)
-                for f in f2:
-                    if f not in findings: findings.append(f)
-                scanned_regions.append(r)
+    _progress_start(rid, total=100, stage="Preparing")
+    try:
+        if scan_all:
+            regions = _list_enabled_regions(sess)
+        else:
+            regions = [start_region]
+
+        _progress_stage(rid, "Enumerating")
+        scanned_regions: List[str] = []
+        all_elements: List[Dict[str, Any]] = []
+        all_warnings: List[str] = []
+        all_findings: List[Dict[str, Any]] = []
+
+        # split progress roughly into equal parts per region
+        per_region = max(1, int(80 / max(1, len(regions))))
+        current = 10
+        _progress_update(rid, current)
+
+        for r in regions:
+            _progress_stage(rid, f"Enumerating {r}")
+            elements, warnings, findings = await run_in_threadpool(_enumerate_one_region, sess, account_id, r, rid)
+            all_elements.extend(elements)
+            all_warnings.extend(warnings)
+            all_findings.extend(findings)
+            scanned_regions.append(r)
+            current = min(90, current + per_region)
+            _progress_update(rid, current)
 
         # credentialed downloads
-        _inject_creds_into_existing_links(elements, ak, sk, st)
-        _augment_download_links(elements, ak, sk, st)
+        _inject_creds_into_existing_links(all_elements, ak, sk, st)
+        _augment_download_links(all_elements, ak, sk, st)
 
-        # id -> findings[] map for quick UI filtering
-        findings_by_id: Dict[str, List[Dict[str, Any]]] = {}
-        for f in findings:
-            fid = f.get('id')
-            if not fid: continue
-            findings_by_id.setdefault(fid, []).append(f)
+        _progress_finish(rid, "Completed")
+        return json_response({
+            "rid": rid,
+            "region": start_region,
+            "scanned_regions": scanned_regions,
+            "elements": all_elements,
+            "warnings": all_warnings,
+            "findings": all_findings,
+        })
+    except Exception as e:
+        _progress_finish(rid, "Failed")
+        return json_response({"error": f"Enumeration failed: {e}"}, status_code=500)
 
-        _progress_done(rid)
+# --------------------------
+# Download endpoints (unchanged + S3 config)
+# --------------------------
 
-        return {
-            'rid': rid,
-            'elements': elements,
-            'warnings': warnings,
-            'findings': findings,
-            'findings_by_id': findings_by_id,
-            'region': region,
-            'scanned_regions': scanned_regions
+@app.get('/download/lambda-code')
+async def download_lambda_code(
+    region: str = Query(...),
+    functionArn: Optional[str] = Query(None),
+    functionName: Optional[str] = Query(None),
+    ak: Optional[str] = Query(None),
+    sk: Optional[str] = Query(None),
+    st: Optional[str] = Query(None),
+):
+    sess = build_session(ak, sk, st, region)
+    lam = sess.client('lambda', region_name=region, config=_boto_cfg())
+    fn = functionArn or functionName
+    if not fn:
+        return JSONResponse({"error": "functionArn or functionName is required"}, status_code=400)
+    try:
+        info = lam.get_function(FunctionName=fn)
+        code = info.get('Code', {}).get('Location')
+        if not code:
+            return JSONResponse({"error": "No code location returned"}, status_code=404)
+        # stream redirect to S3 signed URL
+        return RedirectResponse(url=code, status_code=307)
+    except Exception as e:
+        return JSONResponse({"error": f"lambda get_function failed: {e}"}, status_code=500)
+
+@app.get('/download/lambda-layer')
+async def download_lambda_layer(
+    region: str = Query(...),
+    layerArn: str = Query(...),
+    version: str = Query(...),
+    ak: Optional[str] = Query(None),
+    sk: Optional[str] = Query(None),
+    st: Optional[str] = Query(None),
+):
+    sess = build_session(ak, sk, st, region)
+    lam = sess.client('lambda', region_name=region, config=_boto_cfg())
+    try:
+        res = lam.get_layer_version(Arn=layerArn, VersionNumber=int(version))
+        loc = res.get('Content', {}).get('Location')
+        if not loc:
+            return JSONResponse({"error": "No layer content location returned"}, status_code=404)
+        return RedirectResponse(url=loc, status_code=307)
+    except Exception as e:
+        return JSONResponse({"error": f"lambda get_layer_version failed: {e}"}, status_code=500)
+
+@app.get('/download/apigwv2-export')
+async def download_apigwv2_export(
+    region: str = Query(...),
+    apiId: str = Query(...),
+    ak: Optional[str] = Query(None),
+    sk: Optional[str] = Query(None),
+    st: Optional[str] = Query(None),
+):
+    sess = build_session(ak, sk, st, region)
+    apigw = sess.client('apigatewayv2', region_name=region, config=_boto_cfg())
+    try:
+        res = apigw.get_api(ApiId=apiId)
+        data = orjson.dumps(res)
+        filename = f"apigwv2-{apiId}-export.json"
+        return Response(content=data, media_type="application/json",
+                        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    except Exception as e:
+        return JSONResponse({"error": f"apigwv2 get_api failed: {e}"}, status_code=500)
+
+@app.get('/download/dynamodb-table')
+async def download_dynamodb_table(
+    region: str = Query(...),
+    tableArn: Optional[str] = Query(None),
+    tableName: Optional[str] = Query(None),
+    ak: Optional[str] = Query(None),
+    sk: Optional[str] = Query(None),
+    st: Optional[str] = Query(None),
+):
+    sess = build_session(ak, sk, st, region)
+    ddb = sess.client('dynamodb', region_name=region, config=_boto_cfg())
+    if not tableArn and not tableName:
+        return JSONResponse({"error": "tableArn or tableName is required"}, status_code=400)
+    try:
+        if tableArn:
+            desc = ddb.describe_table(TableName=_id_last(tableArn)).get('Table')
+        else:
+            desc = ddb.describe_table(TableName=tableName).get('Table')
+        data = orjson.dumps({"DescribeTable": desc})
+        filename = f"dynamodb-{(tableName or _id_last(tableArn or ''))}-describe.json"
+        return Response(content=data, media_type="application/json",
+                        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    except Exception as e:
+        return JSONResponse({"error": f"dynamodb describe_table failed: {e}"}, status_code=500)
+
+@app.get('/download/cloudfront-config')
+async def download_cloudfront_config(
+    id: str = Query(...),
+    ak: Optional[str] = Query(None),
+    sk: Optional[str] = Query(None),
+    st: Optional[str] = Query(None),
+):
+    # CloudFront is a global service (us-east-1)
+    region = 'us-east-1'
+    sess = build_session(ak, sk, st, region)
+    cf = sess.client('cloudfront', region_name=region, config=_boto_cfg())
+    try:
+        res = cf.get_distribution_config(Id=id)
+        data = orjson.dumps(res)
+        filename = f"cloudfront-{id}-config.json"
+        return Response(content=data, media_type="application/json",
+                        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    except Exception as e:
+        return JSONResponse({"error": f"cloudfront get_distribution_config failed: {e}"}, status_code=500)
+
+# NEW: S3 bucket configuration bundle
+@app.get('/download/s3-config')
+async def download_s3_bucket_config(
+    region: Optional[str] = Query(None),
+    bucket: str = Query(...),
+    ak: Optional[str] = Query(None),
+    sk: Optional[str] = Query(None),
+    st: Optional[str] = Query(None),
+):
+    """Bundle key S3 bucket configuration APIs into one JSON.
+    Best-effort: missing permissions or absent sub-configs are recorded under `errors`.
+    """
+    try:
+        sess = build_session(ak, sk, st, region or DEFAULT_REGION)
+        # Initial client; S3 is global but some APIs behave better when targeting the bucket's region.
+        s3 = sess.client('s3', region_name=region or DEFAULT_REGION, config=_boto_cfg())
+
+        def _safe_call(fn, *args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            except Exception as e:
+                return {"__error__": str(e)}
+
+        # Discover actual bucket region
+        loc_resp = _safe_call(s3.get_bucket_location, Bucket=bucket)
+        bucket_region = None
+        if isinstance(loc_resp, dict):
+            lc = loc_resp.get('LocationConstraint')
+            if lc in (None, ''):
+                bucket_region = 'us-east-1'
+            elif lc == 'EU':  # legacy alias for eu-west-1
+                bucket_region = 'eu-west-1'
+            else:
+                bucket_region = lc
+
+        if bucket_region and (region or DEFAULT_REGION) != bucket_region:
+            # Recreate client in the bucket's home region
+            s3 = sess.client('s3', region_name=bucket_region, config=_boto_cfg())
+
+        results: Dict[str, Any] = {
+            "bucket": bucket,
+            "region_hint": region,
+            "resolved_region": bucket_region or (region or DEFAULT_REGION),
         }
 
-    result = await run_in_threadpool(do_enumeration)
-    return json_response(result)
+        # Collect configs (best effort; errors captured)
+        calls = {
+            "policy": lambda: s3.get_bucket_policy(Bucket=bucket),
+            "policy_status": lambda: s3.get_bucket_policy_status(Bucket=bucket),
+            "public_access_block": lambda: s3.get_public_access_block(Bucket=bucket),
+            "encryption": lambda: s3.get_bucket_encryption(Bucket=bucket),
+            "acl": lambda: s3.get_bucket_acl(Bucket=bucket),
+            "cors": lambda: s3.get_bucket_cors(Bucket=bucket),
+            "website": lambda: s3.get_bucket_website(Bucket=bucket),
+            "logging": lambda: s3.get_bucket_logging(Bucket=bucket),
+            "versioning": lambda: s3.get_bucket_versioning(Bucket=bucket),
+            "tagging": lambda: s3.get_bucket_tagging(Bucket=bucket),
+            "lifecycle": lambda: s3.get_bucket_lifecycle_configuration(Bucket=bucket),
+        }
+
+        errors: Dict[str, str] = {}
+        for key, fn in calls.items():
+            resp = _safe_call(fn)
+            if isinstance(resp, dict) and '__error__' in resp:
+                errors[key] = resp['__error__']
+            else:
+                results[key] = resp
+
+        if errors:
+            results["errors"] = errors
+
+        data = orjson.dumps(results)
+        filename = f"s3-{bucket}-config.json"
+        return Response(content=data, media_type="application/json",
+                        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    except Exception as e:
+        return JSONResponse({"error": f"s3 bucket config failed: {e}"}, status_code=500)
+
+@app.get('/download/console')
+async def open_in_console(arn: str = Query(...)):
+    try:
+        parts = arn.split(':')
+        if len(parts) < 6:
+            return JSONResponse({"error": "unsupported arn format"}, status_code=400)
+        service = parts[2]; region = parts[3]
+        rest = ':'.join(parts[5:])
+        url = None
+        if service == 'lambda':
+            name = rest.split('function:')[-1]
+            url = f"https://{region}.console.aws.amazon.com/lambda/home?region={region}#/functions/{quote_plus(name)}"
+        elif service == 'dynamodb':
+            name = rest.split('table/')[-1]
+            url = f"https://{region}.console.aws.amazon.com/dynamodbv2/home?region={region}#table?initialTagKey=&table={quote_plus(name)}"
+        elif service == 'apigateway':
+            api_id = rest.split('/apis/')[-1]
+            url = f"https://{region}.console.aws.amazon.com/apigateway/main/apis/{quote_plus(api_id)}/routes"
+        elif service == 'cloudfront':
+            dist_id = _id_last(arn)
+            url = f"https://{region}.console.aws.amazon.com/cloudfront/v3/home?region={region}#/distributions/{quote_plus(dist_id)}"
+        elif service == 's3':
+            name = rest.split(':::')[-1]
+            url = f"https://s3.console.aws.amazon.com/s3/buckets/{quote_plus(name)}?region={region}&bucketType=general&tab=objects"
+        if not url:
+            return JSONResponse({"error": f"unsupported arn: {arn}"}, status_code=400)
+        return RedirectResponse(url=url, status_code=307)
+    except Exception as e:
+        return JSONResponse({"error": f"console redirect failed: {e}"}, status_code=500)
