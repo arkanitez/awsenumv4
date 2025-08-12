@@ -13,6 +13,7 @@ function pushWarning(msg) {
   const a = document.createElement('sl-alert');
   a.variant = 'warning';
   a.closable = true;
+  a.open = true;                       // ensure visible
   a.innerText = String(msg);
   w.appendChild(a);
   const det = [...document.querySelectorAll('sl-details')].find(d => d.getAttribute('summary') === 'Warnings');
@@ -180,7 +181,6 @@ function ensureFindingsContainer() {
   el = document.createElement('div');
   el.id = 'findings';
   el.style.marginTop = '12px';
-  // You can style via CSS; minimal default:
   el.innerHTML = '<div class="muted">No findings.</div>';
   host.appendChild(el);
   console.warn('[ui] Created #findings container automatically (was missing).');
@@ -231,6 +231,7 @@ function renderWarnings(list) {
     const a = document.createElement('sl-alert');
     a.variant = 'warning';
     a.closable = true;
+    a.open = true;                        // <-- make visible
     a.innerText = String(w);
     el.appendChild(a);
   });
@@ -238,6 +239,15 @@ function renderWarnings(list) {
     const det = [...document.querySelectorAll('sl-details')].find(d => d.getAttribute('summary') === 'Warnings');
     if (det) det.setAttribute('open', '');
   }
+}
+
+// Map backend severities to Shoelace variants
+function slVariantForSeverity(sev) {
+  const s = String(sev || '').toUpperCase();
+  if (s === 'HIGH' || s === 'CRITICAL' || s === 'DANGER') return 'danger';
+  if (s === 'MEDIUM' || s === 'WARN' || s === 'WARNING') return 'warning';
+  if (s === 'LOW' || s === 'NEUTRAL') return 'neutral';
+  return 'primary'; // INFO or unknown
 }
 
 function renderFindings(list) {
@@ -250,8 +260,9 @@ function renderFindings(list) {
   }
   for (const f of arr) {
     const a = document.createElement('sl-alert');
-    a.variant = (f.severity || 'info').toLowerCase();
+    a.variant = slVariantForSeverity(f.severity);  // <-- valid variant
     a.closable = true;
+    a.open = true;                                  // <-- show alert
     a.innerText = `[${f.severity || 'INFO'}] ${f.title || ''}${f.detail ? ': ' + f.detail : ''}`;
     el.appendChild(a);
   }
@@ -319,7 +330,6 @@ function getFindingsForElement(d) {
   try {
     const coll = cy && id ? cy.getElementById(id) : null;
     if (coll) {
-      // robust: support either .nonempty() or .length / .size()
       const present = (typeof coll.nonempty === 'function') ? coll.nonempty() :
                       (typeof coll.size === 'function') ? (coll.size() > 0) :
                       (typeof coll.length === 'number' ? coll.length > 0 : true);
@@ -638,7 +648,8 @@ function bindUI() {
   Promise.all([
     customElements.whenDefined('sl-button'),
     customElements.whenDefined('sl-input'),
-    customElements.whenDefined('sl-progress-bar')
+    customElements.whenDefined('sl-progress-bar'),
+    customElements.whenDefined('sl-alert')   // ensure alert is defined before we use it
   ]).then(() => {
     console.log('[ui] custom elements ready; binding click handlers');
     btn.addEventListener('click', handleEnumerateClick);
@@ -657,6 +668,5 @@ document.addEventListener('DOMContentLoaded', () => {
   bindUI();
   try { initCySafe(); } catch (e) { renderWarnings([String(e)]); }
   legend();
-  // Make sure a findings container is present from the start
   ensureFindingsContainer();
 });
