@@ -4,9 +4,9 @@ console.log('[ui] script loaded');
 let cy;
 let progressTimer = null;
 
-// ----------------------------------------
-// Error surfacing
-// ----------------------------------------
+/* ---------------------
+   Warnings helper
+---------------------- */
 function pushWarning(msg) {
   const w = document.getElementById('warnings');
   if (!w) return;
@@ -28,9 +28,9 @@ window.addEventListener('unhandledrejection', e => {
   pushWarning(e.reason);
 });
 
-// ----------------------------------------
-// Icons (safe if missing)
-// ----------------------------------------
+/* ---------------------
+   Icons (safe if missing)
+---------------------- */
 const ICONS = {
   vpc: '/ui/icons/vpc.svg',
   subnet: '/ui/icons/subnet.svg',
@@ -66,20 +66,20 @@ const ICONS = {
   api_gw_v2_route: '/ui/icons/api-gateway-route.svg'
 };
 
-// ----------------------------------------
-// Container colors (pale fills)
-// ----------------------------------------
+/* ---------------------
+   Containers (pale fills)
+---------------------- */
 const CONTAINER_COLOR = {
-  vpc:          { fill: 'rgba(16, 185, 129, 0.06)',  border: '#10b981' },
-  subnet:       { fill: 'rgba(59, 130, 246, 0.06)',  border: '#3b82f6' },
-  eks_cluster:  { fill: 'rgba(245, 158, 11, 0.06)',  border: '#f59e0b' },
-  ecs_cluster:  { fill: 'rgba(147, 51, 234, 0.06)',  border: '#9333ea' },
-  rds_cluster:  { fill: 'rgba(99, 102, 241, 0.06)',  border: '#6366f1' }
+  vpc:         { fill: 'rgba(16, 185, 129, 0.06)',  border: '#10b981' },
+  subnet:      { fill: 'rgba(59, 130, 246, 0.06)',  border: '#3b82f6' },
+  eks_cluster: { fill: 'rgba(245, 158, 11, 0.06)',  border: '#f59e0b' },
+  ecs_cluster: { fill: 'rgba(147, 51, 234, 0.06)',  border: '#9333ea' },
+  rds_cluster: { fill: 'rgba(99, 102, 241, 0.06)',  border: '#6366f1' }
 };
 
-// ----------------------------------------
-// Styles (you can adjust colours later)
-// ----------------------------------------
+/* ---------------------
+   Styles
+---------------------- */
 const NODE_STYLES = [
   { selector: 'node', style: {
       'label': 'data(label)',
@@ -155,73 +155,41 @@ const EDGE_STYLES = [
   }},
 ];
 
-// ----------------------------------------
-// Plugins
-// ----------------------------------------
+/* ---------------------
+   Plugins
+---------------------- */
 function registerCytoscapePlugins() {
   try { if (window.cytoscapeCoseBilkent) cytoscape.use(window.cytoscapeCoseBilkent); } catch {}
   try { if (window.cytoscapeMinimap) cytoscape.use(window.cytoscapeMinimap); } catch {}
   try { if (window.cytoscapeSvg) cytoscape.use(window.cytoscapeSvg); } catch {}
 }
 
-// ----------------------------------------
-// Init Cytoscape
-// ----------------------------------------
-function initCySafe() {
-  console.log('[ui] initCy');
-  if (!window.cytoscape) throw new Error('Cytoscape failed to load.');
-  const container = document.getElementById('cy');
-  if (!container) throw new Error('#cy container not found');
+/* ---------------------
+   Ensure Findings container exists
+---------------------- */
+function ensureFindingsContainer() {
+  let el = document.getElementById('findings') ||
+           document.getElementById('findings-list') ||
+           document.querySelector('.findings');
+  if (el) return el;
 
-  registerCytoscapePlugins();
+  // Create one next to #details (left sidebar), so it’s always visible
+  const details = document.getElementById('details');
+  const host = details && details.parentElement ? details.parentElement : document.body;
 
-  cy = cytoscape({
-    container,
-    elements: [],
-    minZoom: 0.25,
-    maxZoom: 2.5,
-    pixelRatio: 1,
-    boxSelectionEnabled: false,
-    style: [...NODE_STYLES, ...EDGE_STYLES],
-    layout: {
-      name: (window.cytoscapeCoseBilkent ? 'cose-bilkent' : 'breadthfirst'),
-      quality: 'default',
-      animate: false,
-      nodeRepulsion: 80000,
-      idealEdgeLength: 220,
-      gravity: 0.25,
-      numIter: 1200,
-      tile: true
-    }
-  });
-
-  if (typeof cy.minimap === 'function') {
-    try { cy.minimap({}); } catch {}
-  }
-
-  cy.on('select', 'node,edge', (e) => {
-    const d = e.target.data();
-    renderDetails(d);
-    // Filter findings to this element
-    const sel = getFindingsForElement(d);
-    renderFindings(sel && sel.length ? sel : window.lastFindings || []);
-  });
-
-  cy.on('unselect', () => {
-    document.getElementById('details').innerHTML = '<div class="muted">Select a node or edge.</div>';
-    renderFindings(window.lastFindings || []);
-  });
-
-  const resetBtn = document.getElementById('btn-reset');
-  if (resetBtn) resetBtn.addEventListener('click', () => cy.fit(null, 60));
-
-  const rect = cy.container().getBoundingClientRect();
-  console.log('[ui] cy container rect:', rect);
+  el = document.createElement('div');
+  el.id = 'findings';
+  el.style.marginTop = '12px';
+  // You can style via CSS; minimal default:
+  el.innerHTML = '<div class="muted">No findings.</div>';
+  host.appendChild(el);
+  console.warn('[ui] Created #findings container automatically (was missing).');
+  return el;
 }
 
-// ----------------------------------------
-// Legend
-// ----------------------------------------
+/* ---------------------
+   Legend
+---------------------- */
 function legend() {
   const items = [
     ['VPC (container)', CONTAINER_COLOR.vpc.border],
@@ -252,15 +220,9 @@ function legend() {
   }
 }
 
-// ----------------------------------------
-// Warnings / Findings / Details
-// ----------------------------------------
-function findingsContainer() {
-  return document.getElementById('findings') ||
-         document.getElementById('findings-list') ||
-         document.querySelector('.findings') ||
-         null;
-}
+/* ---------------------
+   Warnings / Findings / Details
+---------------------- */
 function renderWarnings(list) {
   const el = document.getElementById('warnings');
   if (!el) return;
@@ -277,9 +239,9 @@ function renderWarnings(list) {
     if (det) det.setAttribute('open', '');
   }
 }
+
 function renderFindings(list) {
-  const el = findingsContainer();
-  if (!el) return;
+  const el = ensureFindingsContainer();
   el.innerHTML = '';
   const arr = Array.isArray(list) ? list : [];
   if (!arr.length) {
@@ -294,9 +256,11 @@ function renderFindings(list) {
     el.appendChild(a);
   }
 }
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
 }
+
 function renderDetails(data) {
   const el = document.getElementById('details');
   if (!el) return;
@@ -315,9 +279,9 @@ function renderDetails(data) {
   el.innerHTML = html;
 }
 
-// ----------------------------------------
-// Findings helpers (robust selection mapping)
-// ----------------------------------------
+/* ---------------------
+   Findings helpers
+---------------------- */
 function indexFindings(findings) {
   const map = {};
   if (!Array.isArray(findings)) return map;
@@ -330,13 +294,6 @@ function indexFindings(findings) {
   return map;
 }
 
-/**
- * Returns findings for a selected element data:
- * 1) data.findings / data.issues if present
- * 2) window.findingsById[id]
- * 3) scan window.lastFindings where f.id === id
- * 4) If element is visually flagged (issue/severity) but nothing found, return a synthetic finding
- */
 function getFindingsForElement(d) {
   if (!d) return [];
   // 1) inline
@@ -346,24 +303,30 @@ function getFindingsForElement(d) {
   const id = d.id;
   const all = Array.isArray(window.lastFindings) ? window.lastFindings : [];
 
-  // 2) server-supplied map
+  // 2) server-supplied index
   const map = window.findingsById || {};
   if (id && map[id] && map[id].length) return map[id];
 
-  // 3) client-scan
+  // 3) client scan
   if (id) {
     const direct = all.filter(f => f && f.id === id);
     if (direct.length) return direct;
   }
 
-  // 4) synthetic if visually flagged but no text findings available
-  const flagged = (d.severity === 'high') || (typeof d.severity === 'string' && d.severity.toLowerCase() === 'high');
-  // some builds use classes set on rendered element, so check for that too when possible
+  // 4) synthetic if visually flagged but no text finding
+  const flagged = (typeof d.severity === 'string' && d.severity.toLowerCase() === 'high');
   let hasIssueClass = false;
   try {
-    const ele = cy && id ? cy.getElementById(id) : null;
-    hasIssueClass = !!(ele && ele.nonempty() && ele.hasClass('issue'));
+    const coll = cy && id ? cy.getElementById(id) : null;
+    if (coll) {
+      // robust: support either .nonempty() or .length / .size()
+      const present = (typeof coll.nonempty === 'function') ? coll.nonempty() :
+                      (typeof coll.size === 'function') ? (coll.size() > 0) :
+                      (typeof coll.length === 'number' ? coll.length > 0 : true);
+      if (present) hasIssueClass = coll.hasClass('issue') || coll.hasClass('high');
+    }
   } catch {}
+
   if (flagged || hasIssueClass) {
     return [{
       id: id || '(unknown)',
@@ -378,9 +341,9 @@ function getFindingsForElement(d) {
   return [];
 }
 
-// ----------------------------------------
-// Element processing
-// ----------------------------------------
+/* ---------------------
+   Element processing
+---------------------- */
 function markContainers(elements) {
   const parentIds = new Set(
     (elements || [])
@@ -400,6 +363,7 @@ function markContainers(elements) {
     return el;
   });
 }
+
 function injectIcons(elements) {
   return (elements || []).map(el => {
     if (!el || !el.data || el.group !== 'nodes') return el;
@@ -422,6 +386,7 @@ function injectIcons(elements) {
     return el;
   });
 }
+
 function sanitizeElements(elements) {
   const nodes = [], edges = [];
   for (const el of elements || []) {
@@ -452,9 +417,9 @@ function sanitizeElements(elements) {
   return cleaned;
 }
 
-// ----------------------------------------
-// Progress UI
-// ----------------------------------------
+/* ---------------------
+   Progress UI
+---------------------- */
 function ensureProgressBar() {
   let wrap = document.getElementById('progress-wrap');
   if (wrap) return wrap;
@@ -525,9 +490,9 @@ async function pollProgress(rid) {
   }
 }
 
-// ----------------------------------------
-// API
-// ----------------------------------------
+/* ---------------------
+   API
+---------------------- */
 async function postEnumerate(rid) {
   const ak = (document.getElementById('ak')?.value || '').trim();
   const sk = (document.getElementById('sk')?.value || '').trim();
@@ -541,9 +506,64 @@ async function postEnumerate(rid) {
   return { ok: res.ok, status: res.status, data };
 }
 
-// ----------------------------------------
-// Enumerate handler
-// ----------------------------------------
+/* ---------------------
+   Init Cytoscape
+---------------------- */
+function initCySafe() {
+  console.log('[ui] initCy');
+  if (!window.cytoscape) throw new Error('Cytoscape failed to load.');
+  const container = document.getElementById('cy');
+  if (!container) throw new Error('#cy container not found');
+
+  registerCytoscapePlugins();
+
+  cy = cytoscape({
+    container,
+    elements: [],
+    minZoom: 0.25,
+    maxZoom: 2.5,
+    pixelRatio: 1,
+    boxSelectionEnabled: false,
+    style: [...NODE_STYLES, ...EDGE_STYLES],
+    layout: {
+      name: (window.cytoscapeCoseBilkent ? 'cose-bilkent' : 'breadthfirst'),
+      quality: 'default',
+      animate: false,
+      nodeRepulsion: 80000,
+      idealEdgeLength: 220,
+      gravity: 0.25,
+      numIter: 1200,
+      tile: true
+    }
+  });
+
+  if (typeof cy.minimap === 'function') {
+    try { cy.minimap({}); } catch {}
+  }
+
+  cy.on('select', 'node,edge', (e) => {
+    const d = e.target.data();
+    renderDetails(d);
+    const sel = getFindingsForElement(d);
+    console.log('[ui] selection findings:', d.id, d.type, d.severity, '->', Array.isArray(sel) ? sel.length : 0);
+    renderFindings(sel && sel.length ? sel : (window.lastFindings || []));
+  });
+
+  cy.on('unselect', () => {
+    document.getElementById('details').innerHTML = '<div class="muted">Select a node or edge.</div>';
+    renderFindings(window.lastFindings || []);
+  });
+
+  const resetBtn = document.getElementById('btn-reset');
+  if (resetBtn) resetBtn.addEventListener('click', () => cy.fit(null, 60));
+
+  const rect = cy.container().getBoundingClientRect();
+  console.log('[ui] cy container rect:', rect);
+}
+
+/* ---------------------
+   Enumerate handler
+---------------------- */
 async function handleEnumerateClick() {
   console.log('[ui] Enumerate clicked');
   const ak = (document.getElementById('ak')?.value || '').trim();
@@ -565,14 +585,16 @@ async function handleEnumerateClick() {
     console.log('[ui] elements count:', elements.length);
     window.lastElements = elements;
 
-    // Findings: take from server or build index on the client
-    window.lastFindings = Array.isArray(data?.findings) ? data.findings : [];
-    window.findingsById = data?.findings_by_id || indexFindings(window.lastFindings);
+    // Findings
+    window.lastFindings  = Array.isArray(data?.findings) ? data.findings : [];
+    window.findingsById  = data?.findings_by_id || indexFindings(window.lastFindings);
+    console.log('[ui] findings total:', window.lastFindings.length,
+                'indexed ids:', Object.keys(window.findingsById || {}).slice(0, 5));
 
     // Show all findings by default
     renderFindings(window.lastFindings);
 
-    // Process and render graph
+    // Graph
     elements = sanitizeElements(elements);
     elements = markContainers(elements);
     elements = injectIcons(elements);
@@ -606,9 +628,9 @@ async function handleEnumerateClick() {
   }
 }
 
-// ----------------------------------------
-// Bind & boot
-// ----------------------------------------
+/* ---------------------
+   Bind & boot
+---------------------- */
 function bindUI() {
   console.log('[ui] bindUI');
   const btn = document.getElementById('btn-enumerate');
@@ -635,4 +657,6 @@ document.addEventListener('DOMContentLoaded', () => {
   bindUI();
   try { initCySafe(); } catch (e) { renderWarnings([String(e)]); }
   legend();
+  // Make sure a findings container is present from the start
+  ensureFindingsContainer();
 });
