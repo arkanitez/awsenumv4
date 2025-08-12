@@ -454,6 +454,14 @@ function ensureProgressBar() {
   bar.value = 0;
   bar.setAttribute('label', 'Starting…');
 
+  const txt = document.createElement('div');
+  txt.id = 'progress-text';
+  txt.style.marginTop = '6px';
+  txt.style.fontSize = '12px';
+  txt.style.opacity = '0.9';
+  txt.textContent = 'Starting…';
+  
+  inner.appendChild(txt);
   inner.appendChild(bar);
   wrap.appendChild(inner);
   document.body.appendChild(wrap);
@@ -491,6 +499,9 @@ async function pollProgress(rid) {
     bar.value = pct;
     const stage = String(js.stage || 'Enumerating…');
     bar.setAttribute('label', `${stage} (${current}/${total})`);
+    const txt = document.getElementById('progress-text');
+    if (txt) txt.textContent = `${stage} (${current}/${total})`;
+    if (js.done && txt) txt.textContent = `Completed (${total}/${total})`;
     if (js.done) {
       bar.setAttribute('label', `Completed (${total}/${total})`);
       setTimeout(hideProgress, 600);
