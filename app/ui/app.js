@@ -1,10 +1,18 @@
+/* app/ui/app.js */
 console.log('[ui] script loaded');
 
+// ---- Global state ----
+let cy;
+let progressTimer = null;
+
+// ---- Error surfaces -> Warnings details panel ----
 window.addEventListener('error', e => {
   console.error('[ui] window error:', e.error || e.message || e);
   const w = document.getElementById('warnings');
   if (w) {
-    const a = document.createElement('sl-alert'); a.variant='warning'; a.closable=true;
+    const a = document.createElement('sl-alert');
+    a.variant = 'warning';
+    a.closable = true;
     a.innerText = String(e.error || e.message || e);
     w.appendChild(a);
     const det = [...document.querySelectorAll('sl-details')].find(d => d.getAttribute('summary') === 'Warnings');
@@ -15,7 +23,9 @@ window.addEventListener('unhandledrejection', e => {
   console.error('[ui] unhandledrejection:', e.reason);
   const w = document.getElementById('warnings');
   if (w) {
-    const a = document.createElement('sl-alert'); a.variant='warning'; a.closable=true;
+    const a = document.createElement('sl-alert');
+    a.variant='warning';
+    a.closable=true;
     a.innerText = String(e.reason);
     w.appendChild(a);
     const det = [...document.querySelectorAll('sl-details')].find(d => d.getAttribute('summary') === 'Warnings');
@@ -23,9 +33,7 @@ window.addEventListener('unhandledrejection', e => {
   }
 });
 
-let cy;
-let progressTimer = null;
-
+// ---- Icon map (you can adjust/expand; absent icons won't break) ----
 const ICONS = {
   vpc: '/ui/icons/vpc.svg',
   subnet: '/ui/icons/subnet.svg',
@@ -70,6 +78,7 @@ const CONTAINER_COLOR = {
   rds_cluster:  { fill: 'rgba(99, 102, 241, 0.06)',  border: '#6366f1' }  // indigo
 };
 
+// ---- Cytoscape Styles (safe defaults; you can recolor later) ----
 const NODE_STYLES = [
   { selector: 'node', style: {
       'label': 'data(label)',
@@ -86,6 +95,7 @@ const NODE_STYLES = [
       'z-index-compare': 'manual',
       'z-index': 1
   }},
+  // Only apply background-image when we explicitly set has-icon class
   { selector: 'node.has-icon', style: {
       'background-image': 'data(icon)',
       'background-fit': 'contain',
@@ -96,6 +106,7 @@ const NODE_STYLES = [
       'background-position-x': '50%',
       'background-position-y': '40%'
   }},
+  // Containers
   { selector: 'node.container', style: {
       'background-opacity': 1,
       'padding': 16,
@@ -105,7 +116,6 @@ const NODE_STYLES = [
       'text-margin-y': 6,
       'border-width': 2,
       'background-image': 'none',
-      'z-compound-depth': 'bottom',
       'z-index-compare': 'manual',
       'z-index': 0
   }},
@@ -114,9 +124,10 @@ const NODE_STYLES = [
   { selector: 'node.container-eks_cluster', style: { 'background-color': CONTAINER_COLOR.eks_cluster.fill,'border-color': CONTAINER_COLOR.eks_cluster.border } },
   { selector: 'node.container-ecs_cluster', style: { 'background-color': CONTAINER_COLOR.ecs_cluster.fill,'border-color': CONTAINER_COLOR.ecs_cluster.border } },
   { selector: 'node.container-rds_cluster', style: { 'background-color': CONTAINER_COLOR.rds_cluster.fill,'border-color': CONTAINER_COLOR.rds_cluster.border } },
+
   { selector: 'node:selected', style: { 'border-color': '#111827', 'border-width': 3 } },
 
-  // >>> Risk highlight for nodes
+  // Risk highlight for nodes (findings engine sets data.severity="high" and class "issue")
   { selector: 'node[severity = "high"], node.issue', style: {
       'border-color': '#ef4444',
       'border-width': 3
@@ -124,15 +135,23 @@ const NODE_STYLES = [
 ];
 
 const EDGE_STYLES = [
-  { selector: 'edge', style: { 'curve-style': 'bezier', 'target-arrow-shape': 'triangle', 'arrow-scale': 0.9, 'width': 2, 'label': 'data(label)', 'font-size': 9, 'color':'#111827' } },
+  { selector: 'edge', style: {
+      'curve-style': 'bezier',
+      'target-arrow-shape': 'triangle',
+      'arrow-scale': 0.9,
+      'width': 2,
+      'label': 'data(label)',
+      'font-size': 9,
+      'color':'#111827'
+  }},
   { selector: 'edge[category = "resource"]', style: { 'line-color': '#2563eb', 'target-arrow-color': '#2563eb' } },
-  { selector: 'edge[category = "network"]', style: { 'line-color': '#f97316', 'target-arrow-color': '#f97316' } },
-  { selector: 'edge[category = "data"]', style: { 'line-color': '#0ea5e9', 'target-arrow-color': '#0ea5e9', 'line-style': 'dotted' } },
-  { selector: 'edge[derived = "true"]', style: { 'line-style': 'dashed' } },
+  { selector: 'edge[category = "network"]',  style: { 'line-color': '#f97316', 'target-arrow-color': '#f97316' } },
+  { selector: 'edge[category = "data"]',     style: { 'line-color': '#0ea5e9', 'target-arrow-color': '#0ea5e9', 'line-style': 'dotted' } },
+  { selector: 'edge[derived = "true"]',      style: { 'line-style': 'dashed' } },
   { selector: 'edge[type = "attach"], edge[type = "assoc"]', style: { 'opacity': 0.45 } },
   { selector: 'edge:selected', style: { 'width': 3 } },
 
-  // >>> Risk highlight for edges
+  // Risk highlight for edges
   { selector: 'edge[severity = "high"], edge.issue', style: {
       'line-color': '#ef4444',
       'target-arrow-color': '#ef4444',
@@ -140,12 +159,14 @@ const EDGE_STYLES = [
   }},
 ];
 
+// ---- Plugin registration (safe if missing) ----
 function registerCytoscapePlugins() {
-  try { if (window.cytoscapeCoseBilkent) cytoscape.use(window.cytoscapeCoseBilkent); } catch (e) {}
-  try { if (window.cytoscapeMinimap) cytoscape.use(window.cytoscapeMinimap); } catch (e) {}
-  try { if (window.cytoscapeSvg) cytoscape.use(window.cytoscapeSvg); } catch (e) {}
+  try { if (window.cytoscapeCoseBilkent) cytoscape.use(window.cytoscapeCoseBilkent); } catch {}
+  try { if (window.cytoscapeMinimap) cytoscape.use(window.cytoscapeMinimap); } catch {}
+  try { if (window.cytoscapeSvg) cytoscape.use(window.cytoscapeSvg); } catch {}
 }
 
+// ---- Init Cytoscape (defensive) ----
 function initCySafe() {
   console.log('[ui] initCy');
   if (!window.cytoscape) throw new Error('Cytoscape failed to load.');
@@ -161,78 +182,147 @@ function initCySafe() {
     maxZoom: 2.5,
     pixelRatio: 1,
     boxSelectionEnabled: false,
-    style: [
-      ...NODE_STYLES,
-      ...EDGE_STYLES,
-    ],
+    style: [...NODE_STYLES, ...EDGE_STYLES],
     layout: {
       name: (window.cytoscapeCoseBilkent ? 'cose-bilkent' : 'breadthfirst'),
-      quality: 'default', animate: false, nodeRepulsion: 80000, idealEdgeLength: 220, gravity: 0.25, numIter: 1200, tile: true
-    },
+      quality: 'default',
+      animate: false,
+      nodeRepulsion: 80000,
+      idealEdgeLength: 220,
+      gravity: 0.25,
+      numIter: 1200,
+      tile: true
+    }
   });
 
-  if (typeof cy.minimap === 'function') { try { cy.minimap({}); } catch {} }
+  if (typeof cy.minimap === 'function') {
+    try { cy.minimap({}); } catch {}
+  }
 
   cy.on('select', 'node,edge', (e) => {
     const d = e.target.data();
     renderDetails(d);
+    // Filter findings panel to this element's findings
+    try {
+      const all = Array.isArray(window.lastFindings) ? window.lastFindings : [];
+      const map = window.findingsById || null;
+      const sel = d && d.id ? (map && map[d.id] ? map[d.id] : all.filter(f => f && f.id === d.id)) : [];
+      if (sel.length) {
+        renderFindings(sel);
+      } else {
+        renderFindings(all);
+      }
+    } catch {}
   });
+
   cy.on('unselect', () => {
     document.getElementById('details').innerHTML = '<div class="muted">Select a node or edge.</div>';
+    // Restore full findings list when nothing is selected
+    if (Array.isArray(window.lastFindings)) {
+      renderFindings(window.lastFindings);
+    } else {
+      renderFindings([]);
+    }
   });
 
   const resetBtn = document.getElementById('btn-reset');
-  if (resetBtn) resetBtn.addEventListener('click', () => { cy.fit(null, 60); });
+  if (resetBtn) resetBtn.addEventListener('click', () => cy.fit(null, 60));
 
   const rect = cy.container().getBoundingClientRect();
   console.log('[ui] cy container rect:', rect);
 }
 
-function legend(){
+// ---- Legend (simple; adjust if you themed differently) ----
+function legend() {
   const items = [
     ['VPC (container)', CONTAINER_COLOR.vpc.border],
     ['Subnet (container)', CONTAINER_COLOR.subnet.border],
     ['Resource edges', '#2563eb'],
-    ['Network edges', '#6a329f'],
+    ['Network edges', '#f97316'],
     ['Data/invoke edges', '#0ea5e9 (dotted)'],
     ['Derived', 'dashed'],
-    ['Issues (High)', '#f13a56'] // <<< new
+    ['Issues (High)', '#ef4444']
   ];
-  const el = document.getElementById('legend'); el.innerHTML = '';
-  for (const [name, color] of items){
-    const row = document.createElement('div'); row.className = 'legend-row';
-    const sw = document.createElement('span'); sw.className = 'swatch';
-    if (color === 'dashed'){ sw.style.border = '1px dashed #9ca3af'; sw.style.background='transparent'; }
-    else { sw.style.background = color.split(' ')[0]; }
-    row.appendChild(sw); row.appendChild(document.createTextNode(name)); el.appendChild(row);
+  const el = document.getElementById('legend');
+  if (!el) return;
+  el.innerHTML = '';
+  for (const [name, color] of items) {
+    const row = document.createElement('div');
+    row.className = 'legend-row';
+    const sw = document.createElement('span');
+    sw.className = 'swatch';
+    if (color === 'dashed') {
+      sw.style.border = '1px dashed #9ca3af';
+      sw.style.background = 'transparent';
+    } else {
+      sw.style.background = String(color).split(' ')[0];
+    }
+    row.appendChild(sw);
+    row.appendChild(document.createTextNode(name));
+    el.appendChild(row);
   }
 }
 
-function renderWarnings(list){
-  const el = document.getElementById('warnings'); el.innerHTML = '';
-  (list||[]).forEach(w => {
-    const a = document.createElement('sl-alert'); a.variant='warning'; a.closable=true;
+// ---- Warnings / Findings rendering ----
+function renderWarnings(list) {
+  const el = document.getElementById('warnings');
+  if (!el) return;
+  el.innerHTML = '';
+  (list || []).forEach(w => {
+    const a = document.createElement('sl-alert');
+    a.variant = 'warning';
+    a.closable = true;
     a.innerText = String(w);
     el.appendChild(a);
   });
-  if ((list||[]).length) {
+  if ((list || []).length) {
     const det = [...document.querySelectorAll('sl-details')].find(d => d.getAttribute('summary') === 'Warnings');
     if (det) det.setAttribute('open', '');
   }
 }
 
-function renderFindings(list){
-  const el = document.getElementById('findings'); el.innerHTML = '';
-  (list||[]).forEach(f => {
-    const a = document.createElement('sl-alert'); a.variant = (f.severity||'info').toLowerCase(); a.closable=true;
-    a.innerText = `[${f.severity}] ${f.title}${f.detail?': '+f.detail:''}`;
+function renderFindings(list) {
+  const el = document.getElementById('findings');
+  if (!el) return;
+  el.innerHTML = '';
+  const arr = Array.isArray(list) ? list : [];
+  if (!arr.length) {
+    el.innerHTML = '<div class="muted">No findings.</div>';
+    return;
+  }
+  for (const f of arr) {
+    const a = document.createElement('sl-alert');
+    a.variant = (f.severity || 'info').toLowerCase(); // info|warning|danger etc. Shoelace maps ok
+    a.closable = true;
+    a.innerText = `[${f.severity || 'INFO'}] ${f.title || ''}${f.detail ? ': ' + f.detail : ''}`;
     el.appendChild(a);
-  });
+  }
 }
 
-function iconFor(type){ return ICONS[type] || undefined; }
+// ---- Details panel ----
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+}
+function renderDetails(data) {
+  const el = document.getElementById('details');
+  if (!el) return;
+  const links = (data?.details && Array.isArray(data.details.links)) ? data.details.links : [];
+  let html = '';
+  if (links.length) {
+    html += '<div style="margin-bottom:8px"><strong>Downloads</strong><ul style="margin:6px 0 10px 18px">';
+    for (const l of links) {
+      const t = String(l.title || 'download');
+      const href = String(l.href || '#');
+      html += `<li><a href="${href}" target="_blank" rel="noopener">${escapeHtml(t)}</a></li>`;
+    }
+    html += '</ul></div>';
+  }
+  html += `<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+  el.innerHTML = html;
+}
 
-/** Identify container nodes (parents) and mark them with classes. */
+// ---- Element processing ----
+/** Identify container nodes (parents) and mark them with classes; remove icons on containers. */
 function markContainers(elements) {
   const parentIds = new Set(
     (elements || [])
@@ -250,6 +340,7 @@ function markContainers(elements) {
     const containerCls = ['container', t ? `container-${t}` : null].filter(Boolean).join(' ');
     el.classes = (cls ? cls + ' ' : '') + containerCls;
 
+    // Ensure containers don't set background-image
     if (el.data.icon) delete el.data.icon;
     el.classes = el.classes.replace(/\bhas-icon\b/g, '').trim();
 
@@ -257,20 +348,26 @@ function markContainers(elements) {
   });
 }
 
-/** Add icons to non-container nodes only (has-icon class if icon present). */
-function injectIcons(elements){
+/** Add icons to non-container nodes only (adds has-icon class only if icon exists). */
+function injectIcons(elements) {
   return (elements || []).map(el => {
     if (!el || !el.data || el.group !== 'nodes') return el;
     const isContainer = /\bcontainer\b/.test(el.classes || '');
-    if (isContainer) { if (el.data.icon) delete el.data.icon; return el; }
+    if (isContainer) {
+      if ('icon' in el.data) delete el.data.icon;
+      el.classes = (el.classes || '').replace(/\bhas-icon\b/g, '').trim();
+      return el;
+    }
     const t = el.data.type;
-    const icon = iconFor(t);
+    const icon = ICONS[t];
     if (icon) {
       el.data.icon = icon;
       const cls = (el.classes || '').trim();
       el.classes = (cls ? cls + ' ' : '') + 'has-icon';
     } else {
-      if ('icon' in el.data && (!el.data.icon || !String(el.data.icon).trim())) delete el.data.icon;
+      // Remove empty icon to avoid "background-image: " errors
+      if (!el.data.icon) delete el.data.icon;
+      el.classes = (el.classes || '').replace(/\bhas-icon\b/g, '').trim();
     }
     return el;
   });
@@ -314,30 +411,8 @@ function sanitizeElements(elements) {
   return cleaned;
 }
 
-function escapeHtml(s){
-  return s.replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
-}
-
-function renderDetails(data){
-  const el = document.getElementById('details');
-  const links = (data?.details && Array.isArray(data.details.links)) ? data.details.links : [];
-  let html = '';
-  if (links.length) {
-    html += '<div style="margin-bottom:8px"><strong>Downloads</strong><ul style="margin:6px 0 10px 18px">';
-    for (const l of links) {
-      const t = String(l.title || 'download');
-      const href = String(l.href || '#');
-      html += `<li><a href="${href}" target="_blank" rel="noopener">${t}</a></li>`;
-    }
-    html += '</ul></div>';
-  }
-  html += `<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
-  el.innerHTML = html;
-}
-
-// ---------- Progress UI ----------
-
-function ensureProgressBar(){
+// ---- Progress UI ----
+function ensureProgressBar() {
   let wrap = document.getElementById('progress-wrap');
   if (wrap) return wrap;
   wrap = document.createElement('div');
@@ -366,22 +441,18 @@ function ensureProgressBar(){
   document.body.appendChild(wrap);
   return wrap;
 }
-
-function showProgress(){
+function showProgress() {
   const wrap = ensureProgressBar();
   wrap.style.display = 'block';
   const bar = document.getElementById('progress-bar');
-  bar.value = 0;
-  bar.setAttribute('label', 'Starting…');
+  if (bar) { bar.value = 0; bar.setAttribute('label', 'Starting…'); }
 }
-
-function hideProgress(){
+function hideProgress() {
   const wrap = document.getElementById('progress-wrap');
   if (wrap) wrap.style.display = 'none';
   if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
 }
-
-function newRid(){
+function newRid() {
   const buf = new Uint8Array(16);
   crypto.getRandomValues(buf);
   buf[6] = (buf[6] & 0x0f) | 0x40;
@@ -389,8 +460,7 @@ function newRid(){
   const hex = [...buf].map(b => b.toString(16).padStart(2, '0')).join('');
   return `${hex.substr(0,8)}-${hex.substr(8,4)}-${hex.substr(12,4)}-${hex.substr(16,4)}-${hex.substr(20)}`;
 }
-
-async function pollProgress(rid){
+async function pollProgress(rid) {
   try {
     const res = await fetch(`/progress?rid=${encodeURIComponent(rid)}`, { cache: 'no-store' });
     if (!res.ok) return;
@@ -408,18 +478,18 @@ async function pollProgress(rid){
       setTimeout(hideProgress, 600);
     }
   } catch (e) {
-    // ignore transient polling errors
+    // ignore polling hiccups
   }
 }
 
-// ---- Enumerate helpers ----
-async function postEnumerate(rid){
+// ---- API helpers ----
+async function postEnumerate(rid) {
   const ak = (document.getElementById('ak')?.value || '').trim();
   const sk = (document.getElementById('sk')?.value || '').trim();
   const payload = { access_key_id: ak, secret_access_key: sk, rid };
-
   const res = await fetch('/enumerate', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload)
   });
   const data = await res.json().catch(() => null);
@@ -427,7 +497,7 @@ async function postEnumerate(rid){
 }
 
 // ---- Enumerate button handler ----
-async function handleEnumerateClick(){
+async function handleEnumerateClick() {
   console.log('[ui] Enumerate clicked');
   const ak = (document.getElementById('ak')?.value || '').trim();
   const sk = (document.getElementById('sk')?.value || '').trim();
@@ -448,6 +518,11 @@ async function handleEnumerateClick(){
     console.log('[ui] elements count:', elements.length);
     window.lastElements = elements;
 
+    // Make findings available globally and render them by default
+    window.lastFindings = Array.isArray(data?.findings) ? data.findings : [];
+    window.findingsById = data?.findings_by_id || {};
+    renderFindings(window.lastFindings);
+
     elements = sanitizeElements(elements);
     elements = markContainers(elements);
     elements = injectIcons(elements);
@@ -458,7 +533,13 @@ async function handleEnumerateClick(){
 
     const layout = cy.layout({
       name: (window.cytoscapeCoseBilkent ? 'cose-bilkent' : 'breadthfirst'),
-      quality: 'default', animate:false, nodeRepulsion:80000, idealEdgeLength:220, gravity:0.25, numIter:1200, tile:true
+      quality: 'default',
+      animate: false,
+      nodeRepulsion: 80000,
+      idealEdgeLength: 220,
+      gravity: 0.25,
+      numIter: 1200,
+      tile: true
     });
     layout.run();
     layout.on('layoutstop', () => { cy.fit(null, 60); });
@@ -466,8 +547,8 @@ async function handleEnumerateClick(){
 
     console.log('[ui] nodes:', cy.nodes().size(), 'edges:', cy.edges().size(),
                 'rect:', cy.container().getBoundingClientRect());
-    renderFindings(data.findings || []); renderWarnings(data.warnings || []);
-  } catch (e){
+    renderWarnings(data.warnings || []);
+  } catch (e) {
     renderWarnings([String(e)]);
   } finally {
     btn.loading = false;
@@ -475,22 +556,30 @@ async function handleEnumerateClick(){
   }
 }
 
-function bindUI(){
+// ---- Bind UI ----
+function bindUI() {
   console.log('[ui] bindUI');
   const btn = document.getElementById('btn-enumerate');
   if (!btn) { console.error('[ui] enumerate button not found'); return; }
-  Promise.all([ customElements.whenDefined('sl-button'), customElements.whenDefined('sl-input'), customElements.whenDefined('sl-progress-bar') ])
-    .then(() => {
-      console.log('[ui] custom elements ready; binding click handlers');
-      btn.addEventListener('click', handleEnumerateClick);
-      btn.addEventListener('sl-click', handleEnumerateClick);
-      ['ak','sk'].forEach(id => {
-        const el = document.getElementById(id);
-        el.addEventListener('keydown', e => { if (e.key === 'Enter') handleEnumerateClick(); });
-      });
-    }).catch(() => { btn.addEventListener('click', handleEnumerateClick); });
+  Promise.all([
+    customElements.whenDefined('sl-button'),
+    customElements.whenDefined('sl-input'),
+    customElements.whenDefined('sl-progress-bar')
+  ]).then(() => {
+    console.log('[ui] custom elements ready; binding click handlers');
+    btn.addEventListener('click', handleEnumerateClick);
+    btn.addEventListener('sl-click', handleEnumerateClick);
+    ['ak', 'sk'].forEach(id => {
+      const el = document.getElementById(id);
+      el && el.addEventListener('keydown', e => { if (e.key === 'Enter') handleEnumerateClick(); });
+    });
+  }).catch(() => {
+    // fallback plain click
+    btn.addEventListener('click', handleEnumerateClick);
+  });
 }
 
+// ---- Boot ----
 document.addEventListener('DOMContentLoaded', () => {
   console.log('[ui] DOMContentLoaded');
   bindUI();
