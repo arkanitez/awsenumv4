@@ -338,16 +338,24 @@ def analyze(elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 if "public-read" in acl or "public-read-write" in acl: why.append(f"acl={acl}")
                 if pab_disabled:    why.append("PublicAccessBlock disabled")
                 _add_finding(findings, n, "S3 bucket is public", "; ".join(why) or "public access detected", "HIGH")
-            enc = details.get("ServerSideEncryptionConfiguration") or details.get("encryption")
-            if not enc:
-                _mark_issue(n, "high")
+            enc_conf = details.get("ServerSideEncryptionConfiguration")
+                if not enc_conf:
+                    enc_resp = details.get("encryption")
+                    if isinstance(enc_resp, dict):
+                        enc_conf = enc_resp.get("ServerSideEncryptionConfiguration") or enc_resp.get("Rules")
+                if not enc_conf:
+                    _mark_issue(n, "high")
                 _add_finding(findings, n, "S3 default encryption not enabled", "No default SSE configuration", "HIGH")
             ver = details.get("Versioning") or details.get("versioning") or {}
             if not bool(ver.get("Status") == "Enabled" or ver.get("enabled") is True):
                 _mark_issue(n, "high")
                 _add_finding(findings, n, "S3 versioning disabled", "Versioning not enabled", "HIGH")
             log = details.get("Logging") or details.get("logging") or {}
-            if not bool(log.get("Enabled") or log.get("enabled")):
+            logging_enabled = bool(
+                log.get("Enabled") or log.get("enabled") or
+                log.get("LoggingEnabled") or log.get("TargetBucket")
+            )
+            if not logging_enabled:
                 _mark_issue(n, "high")
                 _add_finding(findings, n, "S3 server access logging disabled", "No logging target", "HIGH")
 
