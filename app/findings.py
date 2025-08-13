@@ -3,7 +3,9 @@ from __future__ import annotations
 from typing import Any, Dict, List, Tuple, Set, Iterable
 import re
 
-# ===== Port model =====
+# =========================
+# Port / TLS models
+# =========================
 
 SENSITIVE_PORTS: Set[int] = {
     22,    # SSH
@@ -26,7 +28,9 @@ HTTP_PORTS = {80, 8080, 8000, 8081}
 TLS_WEAK_VERSIONS = {"SSLv3", "TLSv1", "TLSv1_0", "TLSv1.0", "TLSv1_1", "TLSv1.1"}
 TLS_WEAK_PATTERNS = re.compile(r"(TLS[-_]?1(\.0|_0|[-_]0)|SSL)", re.IGNORECASE)
 
-# ===== Utilities =====
+# =========================
+# Utilities
+# =========================
 
 def _index_nodes(elements: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     return {
@@ -36,7 +40,8 @@ def _index_nodes(elements: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     }
 
 def _mark_issue(el: Dict[str, Any], severity: str = "high"):
-    if not el or "data" not in el: return
+    if not el or "data" not in el: 
+        return
     el["data"]["severity"] = severity
     cls = (el.get("classes") or "").strip()
     classes = set(cls.split()) if cls else set()
@@ -53,7 +58,7 @@ def _add_finding(findings: List[Dict[str, Any]], el: Dict[str, Any], title: str,
         "title": title,
         "detail": detail,
         "region": data.get("region"),
-        "label": data.get("label")
+        "label": data.get("label"),
     })
 
 def _truthy(details: Dict[str, Any], *keys: str) -> bool:
@@ -75,7 +80,9 @@ def _coalesce(d: Dict[str, Any], *keys: str, default: Any=None) -> Any:
             return d[k]
     return default
 
-# ===== Policy checks (Cloudsplaining-like) =====
+# =========================
+# Policy parsing (Cloudsplaining-like)
+# =========================
 
 def _iter_policy_docs(obj: Any) -> Iterable[Dict[str, Any]]:
     if not obj: return
@@ -112,7 +119,8 @@ def _policy_allows_overbroad(policy_doc: Dict[str, Any]) -> Tuple[bool, bool, bo
         if isinstance(stmts, dict): stmts = [stmts]
         a_wild = r_wild = p_pub = False
         for s in stmts:
-            if (s.get("Effect") or s.get("effect") or "").lower() != "allow": continue
+            if (s.get("Effect") or s.get("effect") or "").lower() != "allow": 
+                continue
             action = s.get("Action") or s.get("action")
             resource = s.get("Resource") or s.get("resource")
             principal = s.get("Principal") or s.get("principal")
@@ -123,7 +131,9 @@ def _policy_allows_overbroad(policy_doc: Dict[str, Any]) -> Tuple[bool, bool, bo
     except Exception:
         return (False, False, False)
 
-# ===== Edge / ports parsing =====
+# =========================
+# Edge / ports parsing
+# =========================
 
 def _parse_ports_from_label(label: str) -> Tuple[bool, Set[int], Set[int]]:
     """
@@ -142,12 +152,13 @@ def _parse_ports_from_label(label: str) -> Tuple[bool, Set[int], Set[int]]:
             a = int(a)
             if b:
                 b = int(b)
-                if a <= 1 and b >= 65535: return (True, set(), http_found)
+                if a <= 1 and b >= 65535: 
+                    return (True, set(), http_found)
                 for p in range(a, min(b, 65535) + 1):
-                    ports.add(p); 
+                    ports.add(p)
                     if p in HTTP_PORTS: http_found.add(p)
             else:
-                ports.add(a); 
+                ports.add(a)
                 if a in HTTP_PORTS: http_found.add(a)
         except Exception:
             pass
@@ -170,7 +181,50 @@ def _edge_from_world(edge: Dict[str, Any], nodes_by_id: Dict[str, Dict[str, Any]
 def _is_network_edge(edge: Dict[str, Any]) -> bool:
     return (edge.get("data") or {}).get("category") == "network"
 
-# ===== Main analyzer =====
+# =========================
+# S3 helpers
+# =========================
+
+def _s3_default_encryption(details: Dict[str, Any]) -> Tuple[bool, bool, List[str]]:
+    """
+    Returns (enabled: bool, uses_kms: bool, algs: [SSEAlgorithm...]).
+    Accepts both shapes you may store:
+      - details["ServerSideEncryptionConfiguration"]["Rules"]
+      - details["encryption"]["ServerSideEncryptionConfiguration"]["Rules"]
+      - OR details["encryption"]["Rules"] (if already flattened)
+    """
+    cfg = None
+    if isinstance(details.get("ServerSideEncryptionConfiguration"), dict):
+        cfg = details["ServerSideEncryptionConfiguration"]
+    else:
+        enc = details.get("encryption")
+        if isinstance(enc, dict):
+            if isinstance(enc.get("ServerSideEncryptionConfiguration"), dict):
+                cfg = enc["ServerSideEncryptionConfiguration"]
+            elif "Rules" in enc:
+                cfg = enc
+
+    if not cfg:
+        return (False, False, [])
+
+    rules = cfg.get("Rules", [])
+    if isinstance(rules, dict):
+        rules = [rules]
+
+    algs: List[str] = []
+    uses_kms = False
+    for r in rules:
+        apply = (r or {}).get("ApplyServerSideEncryptionByDefault") or {}
+        alg = _safe_str(apply.get("SSEAlgorithm")).upper()
+        if alg:
+            algs.append(alg)
+            if alg in {"AWS:KMS", "KMS", "SSE-KMS"}:
+                uses_kms = True
+    return (len(algs) > 0, uses_kms, algs)
+
+# =========================
+# Main analyzer
+# =========================
 
 def analyze(elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     findings: List[Dict[str, Any]] = []
@@ -191,7 +245,8 @@ def analyze(elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             _mark_issue(el, "high")
             tgt = nodes_by_id.get(d.get("target"))
             if tgt: _mark_issue(tgt, "high")
-            _add_finding(findings, tgt or el, "Public network exposure", "All ports exposed to the Internet (0.0.0.0/0).", "HIGH")
+            _add_finding(findings, tgt or el, "Public network exposure",
+                         "All ports exposed to the Internet (0.0.0.0/0).", "HIGH")
             continue
 
         sens = ports & SENSITIVE_PORTS
@@ -211,7 +266,8 @@ def analyze(elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
     # 2) Node posture checks (service-focused)
     for n in elements:
-        if n.get("group") != "nodes": continue
+        if n.get("group") != "nodes": 
+            continue
         nd = n.get("data") or {}
         t = (nd.get("type") or "").lower()
         details = nd.get("details") or {}
@@ -219,13 +275,13 @@ def analyze(elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         # ---- EC2 / EBS / AMI / Snapshots
         if t in {"instance", "ec2", "ec2_instance"}:
             if _coalesce(details, "PublicIpAddress","PublicIp","public_ip", default=None):
-                _mark_issue(n, "high")
+                _mark_issue(n, "medium")
                 _add_finding(findings, n, "EC2 instance has public IP",
-                             f"Instance public IP: {_safe_str(_coalesce(details,'PublicIpAddress','PublicIp','public_ip'))}", "HIGH")
+                             f"Instance public IP: {_safe_str(_coalesce(details,'PublicIpAddress','PublicIp','public_ip'))}", "MEDIUM")
             ht = (_coalesce(details, "HttpTokens","httpTokens", default="optional") or "").lower()
             if ht and ht != "required":
-                _mark_issue(n, "high")
-                _add_finding(findings, n, "EC2 IMDSv2 not enforced", f"Instance metadata HttpTokens={ht}", "HIGH")
+                _mark_issue(n, "medium")
+                _add_finding(findings, n, "EC2 IMDSv2 not enforced", f"Instance metadata HttpTokens={ht}", "MEDIUM")
 
         if t in {"ebs_volume","volume"}:
             if not bool(_coalesce(details, "Encrypted","encrypted", default=False)):
@@ -246,23 +302,27 @@ def analyze(elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if t in {"load_balancer","elb","alb","nlb"}:
             scheme = (_coalesce(details,"scheme","Scheme", default="") or "").lower()
             if scheme == "internet-facing":
-                _mark_issue(n, "high")
-                _add_finding(findings, n, "Internet-facing load balancer", "Scheme is internet-facing", "HIGH")
+                _mark_issue(n, "medium")
+                _add_finding(findings, n, "Internet-facing load balancer", "Scheme is internet-facing", "MEDIUM")
             # Weak TLS on listeners
             listeners = details.get("listeners") or []
             for lst in listeners:
                 proto = _safe_str(lst.get("Protocol") or lst.get("protocol")).upper()
                 port = lst.get("Port") or lst.get("port")
                 pol  = _safe_str(lst.get("SslPolicy") or lst.get("ssl_policy"))
-                if proto in {"TLS","SSL","HTTPS"} and (pol in TLS_WEAK_VERSIONS or TLS_WEAK_PATTERNS.search(pol)):
-                    _mark_issue(n, "high")
-                    _add_finding(findings, n, "ELB weak TLS policy",
-                                 f"Listener {proto}/{port} uses weak policy '{pol}'", "HIGH")
-                # HTTP listener without https/redirect hint (if enumerator provided)
+                if proto in {"TLS","SSL","HTTPS"}:
+                    if pol in TLS_WEAK_VERSIONS or TLS_WEAK_PATTERNS.search(pol or ""):
+                        sev = "MEDIUM"
+                        if pol.upper() in {"SSLV3","TLSV1","TLSV1_0","TLSV1.0"}:
+                            sev = "HIGH"
+                        _mark_issue(n, sev.lower())
+                        _add_finding(findings, n, "ELB weak TLS policy",
+                                     f"Listener {proto}/{port} uses weak policy '{pol}'", sev)
+                # HTTP without redirect to HTTPS (best-effort)
                 if proto == "HTTP" and not _truthy(lst, "RedirectToHTTPS","redirect_to_https") and not _truthy(details, "httpRedirectToHttps"):
-                    _mark_issue(n, "high")
+                    _mark_issue(n, "medium")
                     _add_finding(findings, n, "HTTP listener without HTTPS redirect",
-                                 f"Listener HTTP/{port} does not indicate redirect to HTTPS", "HIGH")
+                                 f"Listener HTTP/{port} does not indicate redirect to HTTPS", "MEDIUM")
 
         # ---- RDS / Aurora
         if t in {"rds","rds_instance","rds_cluster_instance","aurora"}:
@@ -274,11 +334,14 @@ def analyze(elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 _add_finding(findings, n, "RDS storage not encrypted", "StorageEncrypted=false", "HIGH")
             brp = details.get("BackupRetentionPeriod")
             if isinstance(brp, int) and brp <= 0:
-                _mark_issue(n, "high")
-                _add_finding(findings, n, "RDS backups disabled", "BackupRetentionPeriod<=0", "HIGH")
+                _mark_issue(n, "medium")
+                _add_finding(findings, n, "RDS backups disabled", "BackupRetentionPeriod<=0", "MEDIUM")
             if details.get("MultiAZ") is False:
-                _mark_issue(n, "high")
-                _add_finding(findings, n, "RDS not Multi-AZ", "MultiAZ=false", "HIGH")
+                _mark_issue(n, "medium")
+                _add_finding(findings, n, "RDS not Multi-AZ", "MultiAZ=false", "MEDIUM")
+            if details.get("DeletionProtection") is False:
+                _mark_issue(n, "medium")
+                _add_finding(findings, n, "RDS deletion protection disabled", "DeletionProtection=false", "MEDIUM")
 
         # ---- EKS
         if t in {"eks","eks_cluster"}:
@@ -297,16 +360,23 @@ def analyze(elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 for ct in logs.get("types", []) or []:
                     if ct in ("api","audit","authenticator","controllerManager","scheduler"):
                         enabled_logs.append(ct)
-            except Exception: pass
+            except Exception: 
+                pass
             if not enabled_logs:
-                _mark_issue(n, "high")
-                _add_finding(findings, n, "EKS control plane logging disabled", "No log types enabled", "HIGH")
+                _mark_issue(n, "medium")
+                _add_finding(findings, n, "EKS control plane logging disabled", "No log types enabled", "MEDIUM")
 
         # ---- ECS
         if t in {"ecs_service"}:
             if _truthy(details, "internetFacing","publicLoadBalancer"):
-                _mark_issue(n, "high")
-                _add_finding(findings, n, "ECS service internet-facing", "Public LB or internetFacing=true", "HIGH")
+                _mark_issue(n, "medium")
+                _add_finding(findings, n, "ECS service internet-facing", "Public LB or internetFacing=true", "MEDIUM")
+            if _truthy(details, "Privileged"):
+                _mark_issue(n, "medium")
+                _add_finding(findings, n, "ECS task privileged", "Privileged container enabled", "MEDIUM")
+            if _safe_str(details.get("NetworkMode")).lower() in {"host"} or _safe_str(details.get("PidMode")).lower() in {"host"}:
+                _mark_issue(n, "medium")
+                _add_finding(findings, n, "ECS task shares host namespaces", "Host networking/PID mode", "MEDIUM")
 
         # ---- Lambda
         if t == "lambda":
@@ -338,32 +408,42 @@ def analyze(elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 if "public-read" in acl or "public-read-write" in acl: why.append(f"acl={acl}")
                 if pab_disabled:    why.append("PublicAccessBlock disabled")
                 _add_finding(findings, n, "S3 bucket is public", "; ".join(why) or "public access detected", "HIGH")
-            enc_conf = details.get("ServerSideEncryptionConfiguration")
-            if not enc_conf:
-                enc_resp = details.get("encryption")
-                if isinstance(enc_resp, dict):
-                    enc_conf = enc_resp.get("ServerSideEncryptionConfiguration") or enc_resp.get("Rules")
-            if not enc_conf:
+
+            enabled, uses_kms, algs = _s3_default_encryption(details)
+            if not enabled:
                 _mark_issue(n, "high")
-                _add_finding(findings, n, "S3 default encryption not enabled", "No default SSE configuration", "HIGH")
+                _add_finding(findings, n, "S3 default encryption not enabled",
+                             "No default SSE configuration", "HIGH")
+            else:
+                if not uses_kms and ("AES256" in algs):
+                    _mark_issue(n, "medium")
+                    _add_finding(findings, n, "S3 default encryption does not use KMS",
+                                 "Using SSE-S3 (AES256) instead of SSE-KMS", "MEDIUM")
+
             ver = details.get("Versioning") or details.get("versioning") or {}
             if not bool(ver.get("Status") == "Enabled" or ver.get("enabled") is True):
-                _mark_issue(n, "high")
-                _add_finding(findings, n, "S3 versioning disabled", "Versioning not enabled", "HIGH")
+                _mark_issue(n, "medium")
+                _add_finding(findings, n, "S3 versioning not enabled", "Versioning is disabled", "MEDIUM")
+
             log = details.get("Logging") or details.get("logging") or {}
             logging_enabled = bool(
                 log.get("Enabled") or log.get("enabled") or log.get("LoggingEnabled") or log.get("TargetBucket")
             )
             if not logging_enabled:
-                _mark_issue(n, "high")
-                _add_finding(findings, n, "S3 server access logging disabled", "No logging target", "HIGH")
+                _mark_issue(n, "low")
+                _add_finding(findings, n, "S3 server access logging disabled", "Server access logging is disabled", "LOW")
 
         # ---- CloudFront
         if t in {"cloudfront"}:
             min_tls = _safe_str(_coalesce(details, "MinimumProtocolVersion","ViewerCertificateMinimumProtocolVersion"))
-            if min_tls and (min_tls in TLS_WEAK_VERSIONS or min_tls.upper() in TLS_WEAK_VERSIONS or TLS_WEAK_PATTERNS.search(min_tls)):
-                _mark_issue(n, "high")
-                _add_finding(findings, n, "CloudFront weak TLS", f"MinimumProtocolVersion={min_tls}", "HIGH")
+            if min_tls:
+                mint_up = min_tls.replace("_", ".").upper()
+                sev = "MEDIUM"
+                if mint_up in {"SSLV3","TLSV1","TLSV1.0","TLSV1_0"}:
+                    sev = "HIGH"
+                if (min_tls in TLS_WEAK_VERSIONS) or (min_tls.upper() in TLS_WEAK_VERSIONS) or TLS_WEAK_PATTERNS.search(min_tls):
+                    _mark_issue(n, sev.lower())
+                    _add_finding(findings, n, "CloudFront weak TLS", f"MinimumProtocolVersion={min_tls}", sev)
             vpp = _safe_str(_coalesce(details, "ViewerProtocolPolicy","viewer_protocol_policy")).lower()
             if vpp == "allow-all":
                 _mark_issue(n, "high")
@@ -405,31 +485,35 @@ def analyze(elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if t in {"kms_key","kms"}:
             rot = details.get("KeyRotationEnabled")
             if rot is False:
-                _mark_issue(n, "high")
-                _add_finding(findings, n, "KMS key rotation disabled", "KeyRotationEnabled=false", "HIGH")
+                _mark_issue(n, "medium")
+                _add_finding(findings, n, "KMS key rotation disabled", "KeyRotationEnabled=false", "MEDIUM")
 
         if t in {"secret","secrets_manager"}:
             if not bool(details.get("RotationEnabled")):
-                _mark_issue(n, "high")
-                _add_finding(findings, n, "Secrets Manager rotation disabled", "RotationEnabled=false", "HIGH")
+                _mark_issue(n, "medium")
+                _add_finding(findings, n, "Secrets Manager rotation disabled", "RotationEnabled=false", "MEDIUM")
 
         if t in {"cloudwatch_log_group"}:
             r = details.get("retentionInDays") or details.get("RetentionInDays")
             if not isinstance(r, int) or r <= 0:
-                _mark_issue(n, "high")
-                _add_finding(findings, n, "CloudWatch log group has no retention", f"retentionInDays={r}", "HIGH")
+                _mark_issue(n, "low")
+                _add_finding(findings, n, "CloudWatch log group has no retention",
+                             f"retentionInDays={r}", "LOW")
 
-        # ---- Default Security Group usage
+        # ---- Default Security Group usage (warn)
         if t in {"security_group"}:
             name = _safe_str(_coalesce(details, "GroupName","groupName","name","Name"))
             if name.lower() == "default":
-                _mark_issue(n, "high")
-                _add_finding(findings, n, "Default Security Group in use", "Security Group name is 'default'", "HIGH")
+                _mark_issue(n, "medium")
+                _add_finding(findings, n, "Default Security Group in use",
+                             "Security Group name is 'default'", "MEDIUM")
 
     return findings
 
 
-# ===== Minimal self-tests =====
+# =========================
+# Minimal self-tests
+# =========================
 if __name__ == "__main__":
     assert _parse_ports_from_label("tcp: 80,443; udp: 53") == (False, {80,443,53}, {80})
     assert _parse_ports_from_label("all") == (True, set(), set())
