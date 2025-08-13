@@ -23,8 +23,10 @@ from .findings import analyze as analyze_findings
 # ---- Enumerators (unchanged) ----
 from .enumerators import (
     ec2, elbv2, lambda_ as enum_lambda, apigwv2, s3, sqs_sns,
-    dynamodb, rds, eks, ecs, eventbridge, cloudfront
+    dynamodb, rds, eks, ecs, eventbridge, cloudfront,
+    cloudwatchlogs, kms, cloudtrail, configservice, guardduty, flowlogs, ecr, wafv2
 )
+
 
 try:
     from .reachability import derive_reachability
@@ -373,6 +375,14 @@ SERVICES_ORDER: List[Tuple[str, Any]] = [
     ('rds', rds.enumerate),
     ('eks', eks.enumerate),
     ('ecs', ecs.enumerate),
+    ('cloudwatchlogs', cloudwatchlogs.enumerate),
+    ('kms', kms.enumerate),
+    ('cloudtrail', cloudtrail.enumerate),
+    ('config', configservice.enumerate),
+    ('guardduty', guardduty.enumerate),
+    ('flowlogs', flowlogs.enumerate),
+    ('ecr', ecr.enumerate),
+    ('wafv2', wafv2.enumerate),
 ]
 
 def _apply_short_timeouts_to_enumerators():
