@@ -6,8 +6,8 @@ body { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sa
 /* App layout: fixed left sidebar + canvas */
 .app {
   display: grid;
-  grid-template-columns: 360px 1fr;    /* sidebar width */
-  height: 100vh;                       /* critical: makes #cy visible */
+  grid-template-columns: 360px minmax(320px, 1fr); /* prevents accidental 0px second column */
+  height: 100vh;
 }
 
 /* Sidebar */
@@ -33,6 +33,7 @@ body { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sa
 #cy {
   height: 100vh;      /* critical: ensures cytoscape has real size */
   width: 100%;
+  min-height: 320px; /* ensures we never start with a 0px-tall canvas */
   background: #ffffff;
 }
 
