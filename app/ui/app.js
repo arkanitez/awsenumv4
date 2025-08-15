@@ -3,6 +3,7 @@ console.log('[ui] script loaded');
 
 let cy;
 let progressTimer = null;
+let progressBackoffMs = 500; // backoff for the poller
 
 /* ---------------------
    Warnings helper
@@ -254,7 +255,7 @@ function ensureFindingsContainer() {
   wrap.style.padding = '8px 10px';
   wrap.style.maxHeight = '40vh';
   wrap.style.overflow = 'auto';
-  wrap.style.borderTop = '1px solid #eee';
+  wrap.style.borderTop = '1px solid '#eee';
   parent.appendChild(wrap);
   return wrap;
 }
@@ -267,7 +268,6 @@ function buildQuickLinks(data) {
   const links = [];
   const type = String(data?.type || '');
   const region = String(data?.region || '');
-  const rid = window.lastRid || '';
   const details = data?.details || {};
   const id = String(data?.id || '');
 
@@ -391,7 +391,6 @@ function getFindingsForElement(data) {
 ---------------------- */
 function markContainers(elements) {
   const out = [];
-  const byId = new Map(elements.filter(e => e?.group === 'nodes').map(n => [n.data?.id, n]));
   for (const el of elements) {
     if (el.group !== 'nodes') { out.push(el); continue; }
     const d = el.data || {};
@@ -557,62 +556,123 @@ function applyReadableLayout(cy, opts = {}) {
 }
 
 /* ---------------------
-   Progress bar
+   Progress bar (visible text + robust poller)
 ---------------------- */
 function ensureProgressBar() {
   let wrap = document.getElementById('progress-wrap');
-  if (wrap) return wrap;
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.id = 'progress-wrap';
+    wrap.style.position = 'fixed';
+    wrap.style.left = '0';
+    wrap.style.right = '0';
+    wrap.style.top = '0';
+    wrap.style.padding = '10px 16px 12px 16px';
+    wrap.style.pointerEvents = 'none';
+    wrap.style.zIndex = '9999';
 
-  wrap = document.createElement('div');
-  wrap.id = 'progress-wrap';
-  wrap.style.position = 'fixed';
-  wrap.style.left = '0';
-  wrap.style.right = '0';
-  wrap.style.top = '0';
-  wrap.style.padding = '10px 16px 0 16px';
-  wrap.style.pointerEvents = 'none';
-  wrap.style.zIndex = '9999';
+    const inner = document.createElement('div');
+    inner.id = 'progress-inner';
+    inner.style.maxWidth = '960px';
+    inner.style.margin = '0 auto';
+    inner.style.pointerEvents = 'auto';
+    inner.style.background = 'rgba(255,255,255,0.94)';
+    inner.style.border = '1px solid #e5e7eb';
+    inner.style.borderRadius = '10px';
+    inner.style.boxShadow = '0 6px 18px rgba(0,0,0,0.08)';
+    inner.style.padding = '10px 12px';
 
-  const inner = document.createElement('div');
-  inner.style.maxWidth = '800px';
-  inner.style.margin = '0 auto';
-  inner.style.pointerEvents = 'auto';
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.alignItems = 'center';
+    row.style.gap = '10px';
 
-  const bar = document.createElement('sl-progress-bar');
-  bar.id = 'progress-bar';
-  bar.style.width = '100%';
-  bar.value = 0;
-  bar.setAttribute('label', 'Starting…');
+    const bar = document.createElement('sl-progress-bar');
+    bar.id = 'progress-bar';
+    bar.style.width = '100%';
+    bar.style.setProperty('--height', '10px'); // make bar thicker
+    bar.value = 0;
 
-  inner.appendChild(bar);
-  wrap.appendChild(inner);
-  document.body.appendChild(wrap);
+    const text = document.createElement('div');
+    text.id = 'progress-text';
+    text.style.minWidth = '260px';
+    text.style.fontSize = '12px';
+    text.style.color = '#334155';
+
+    row.appendChild(bar);
+    row.appendChild(text);
+    inner.appendChild(row);
+    wrap.appendChild(inner);
+    document.body.appendChild(wrap);
+  }
   return wrap;
 }
-function showProgress() {
+
+function showProgress(initialLabel = 'Starting…') {
   const wrap = ensureProgressBar();
   wrap.style.display = 'block';
   const bar = document.getElementById('progress-bar');
-  if (bar) { bar.value = 0; bar.setAttribute('label', 'Starting…'); }
+  const text = document.getElementById('progress-text');
+  if (bar) {
+    bar.setAttribute('indeterminate', ''); // pulse until first numeric update
+    bar.value = 0;
+  }
+  if (text) text.textContent = initialLabel;
 }
+
 function hideProgress() {
   const wrap = document.getElementById('progress-wrap');
   if (wrap) wrap.style.display = 'none';
 }
-function newRid() {
-  return 'rid_' + Math.random().toString(36).slice(2);
+
+function _coercePercent(v) {
+  if (typeof v !== 'number' || isNaN(v)) return null;
+  if (v <= 1) return Math.max(0, Math.min(1, v)) * 100; // support 0..1
+  return Math.max(0, Math.min(100, v));                  // support 0..100
 }
+
 async function pollProgress(rid) {
   const bar = document.getElementById('progress-bar');
-  if (!bar) return;
+  const text = document.getElementById('progress-text');
+  if (!bar || !text) return;
+
   try {
-    const res = await fetch(`/progress?rid=${encodeURIComponent(rid)}`);
+    const res = await fetch(`/progress?rid=${encodeURIComponent(rid)}`, { cache: 'no-store' });
     const data = await res.json().catch(() => ({}));
-    if (!data) return;
-    if (typeof data.value === 'number') bar.value = data.value;
-    if (data.label) bar.setAttribute('label', data.label);
-    if (data.done) { clearInterval(progressTimer); progressTimer = null; hideProgress(); }
-  } catch {}
+
+    const pct = _coercePercent(data.value);
+    const label = (data.label || '').toString();
+
+    if (pct !== null) {
+      // switch to determinate on first valid number
+      bar.removeAttribute('indeterminate');
+      bar.value = pct;
+      text.textContent = label ? `${label} (${pct.toFixed(0)}%)` : `${pct.toFixed(0)}%`;
+    } else {
+      // stay indeterminate, but still show label if provided
+      bar.setAttribute('indeterminate', '');
+      if (label) text.textContent = label;
+    }
+
+    // Reset backoff on any successful poll
+    progressBackoffMs = 500;
+
+    if (data.done === true) {
+      clearInterval(progressTimer);
+      progressTimer = null;
+      // Let the user read the final label for a moment
+      setTimeout(hideProgress, 600);
+    }
+  } catch {
+    // transient error: back off but keep pulsing
+    bar.setAttribute('indeterminate', '');
+    text.textContent = 'Working…';
+    progressBackoffMs = Math.min(progressBackoffMs * 2, 5000);
+    if (progressTimer) {
+      clearInterval(progressTimer);
+      progressTimer = setInterval(() => pollProgress(rid), progressBackoffMs);
+    }
+  }
 }
 
 /* ---------------------
@@ -713,11 +773,14 @@ async function handleEnumerateClick() {
   const btn = document.getElementById('btn-enumerate');
   if (!ak || !sk) { renderWarnings(['Please provide both Access Key ID and Secret Access Key.']); return; }
 
-  const rid = newRid();
+  const rid = ('rid_' + Math.random().toString(36).slice(2));
   window.lastRid = rid;                 // <-- keep the last rid so links can use it
-  showProgress();
+  showProgress('Enumerating…');
+
+  // Reset backoff and (re)start poller
+  progressBackoffMs = 500;
   if (progressTimer) clearInterval(progressTimer);
-  progressTimer = setInterval(() => pollProgress(rid), 500);
+  progressTimer = setInterval(() => pollProgress(rid), progressBackoffMs);
 
   btn.loading = true;
   try {
@@ -759,7 +822,8 @@ async function handleEnumerateClick() {
   } finally {
     btn.loading = false;
     clearInterval(progressTimer); progressTimer = null;
-    hideProgress();
+    // poller hides on done=true; also hide on error/early-returns after a short delay
+    setTimeout(hideProgress, 600);
   }
 }
 
