@@ -312,7 +312,8 @@ function buildQuickLinks(data) {
       if (rid) {
         links.push({
           title: 'Download S3 bucket configuration (JSON)',
-          href: `/download/s3/config?rid=${encodeURIComponent(rid)}&region=${encodeURIComponent(region)}&bucket=${encodeURIComponent(bucket)}`
+          //href: `/download/s3/config?rid=${encodeURIComponent(rid)}&region=${encodeURIComponent(region)}&bucket=${encodeURIComponent(bucket)}`
+          href: `/download/s3-config?region=${encodeURIComponent(region)}&bucket=${encodeURIComponent(bucket)}`
         });
       }
     }
