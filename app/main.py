@@ -387,7 +387,12 @@ SERVICES_ORDER: List[Tuple[str, Any]] = [
 
 def _apply_short_timeouts_to_enumerators():
     cfg = _short_cfg()
-    for m in (ec2, elbv2, dynamodb, s3, sqs_sns, enum_lambda, apigwv2, eventbridge, cloudfront, rds, eks, ecs):
+    # Patch every module that defines CFG
+    modules = [
+        ec2, elbv2, dynamodb, s3, sqs_sns, enum_lambda, apigwv2, eventbridge, cloudfront, rds, eks, ecs,
+        cloudwatchlogs, kms, cloudtrail, configservice, guardduty, flowlogs, ecr, wafv2
+    ]
+    for m in modules:
         try:
             if hasattr(m, "CFG"):
                 setattr(m, "CFG", cfg)
