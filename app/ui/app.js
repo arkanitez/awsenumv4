@@ -117,13 +117,10 @@ function ensureArray(a) { return Array.isArray(a) ? a : []; }
 const ICONS = {
   vpc: '/ui/icons/vpc.svg',
   subnet: '/ui/icons/subnet.svg',
-  instance: '/ui/icons/ec2.svg',
-  ec2: '/ui/icons/ec2.svg',
-  ebs_volume: '/ui/icons/ebs.svg',
-  ebs_snapshot: '/ui/icons/ebs-snapshot.svg',
-  ami: '/ui/icons/ami.svg',
+  instance: '/ui/icons/ec2-instance.svg',
+  ec2: '/ui/icons/ec2-instance.svg',
   load_balancer: '/ui/icons/alb.svg',
-  nlb: '/ui/icons/nlb.svg',
+  nlb: '/ui/icons/alb.svg',                 // closest available
   apigw: '/ui/icons/api-gateway.svg',
   api_gw_v2: '/ui/icons/api-gateway.svg',
   s3_bucket: '/ui/icons/s3.svg',
@@ -145,7 +142,12 @@ const ICONS = {
   secret: '/ui/icons/secrets-manager.svg',
   ssmparam: '/ui/icons/ssm.svg',
   integration: '/ui/icons/integration.svg',
-  api_gw_v2_route: '/ui/icons/api-gateway-route.svg'
+  api_gw_v2_route: '/ui/icons/api-gateway-route.svg',
+  eni: '/ui/icons/eni.svg',
+  nat_gateway: '/ui/icons/nat-gateway.svg',
+  route_table: '/ui/icons/route-table.svg',
+  security_group: '/ui/icons/security-group.svg',
+  target_group: '/ui/icons/target-group.svg'
 };
 
 /* ---------------------
@@ -309,13 +311,14 @@ function buildQuickLinks(data) {
         title: 'Open in AWS Console',
         href: `https://s3.console.aws.amazon.com/s3/buckets/${encodeURIComponent(bucket)}?region=${encodeURIComponent(region)}&tab=properties`
       });
-      if (rid) {
-        links.push({
-          title: 'Download S3 bucket configuration (JSON)',
-          //href: `/download/s3/config?rid=${encodeURIComponent(rid)}&region=${encodeURIComponent(region)}&bucket=${encodeURIComponent(bucket)}`
-          href: `/download/s3-config?region=${encodeURIComponent(region)}&bucket=${encodeURIComponent(bucket)}`
-        });
-      }
+      // Fall back to a client-built link (include AK/SK so it can auth server-side)
+      const akv = (document.getElementById('ak')?.value || '').trim();
+      const skv = (document.getElementById('sk')?.value || '').trim();
+      const credQS = akv && skv ? `&ak=${encodeURIComponent(akv)}&sk=${encodeURIComponent(skv)}` : '';
+      links.push({
+        title: 'Download S3 bucket configuration (JSON)',
+        href: `/download/s3-config?region=${encodeURIComponent(region)}&bucket=${encodeURIComponent(bucket)}${credQS}`
+      });
     }
   }
 
