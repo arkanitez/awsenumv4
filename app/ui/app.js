@@ -814,6 +814,7 @@ async function handleEnumerateClick() {
     const { ok, status, data } = await postEnumerate(rid);
     if (!ok) { renderWarnings([data?.error || `Request failed with ${status}`]); return; }
 
+    let elements = data?.elements || [];
     // Support either a flat array OR { nodes: [...], edges: [...] }
     if (!Array.isArray(elements) && elements && Array.isArray(elements.nodes) && Array.isArray(elements.edges)) {
       elements = [...elements.nodes, ...elements.edges];
@@ -835,6 +836,7 @@ async function handleEnumerateClick() {
 
     cy.elements().remove();
     cy.add(elements);
+    console.log('[ui] cy added → nodes:', cy.nodes().size(), 'edges:', cy.edges().size());
     cy.resize();
 
     applyReadableLayout(cy, {
