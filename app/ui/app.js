@@ -856,6 +856,7 @@ async function handleEnumerateClick() {
     cy.add(elements);
     console.log('[ui] cy added → nodes:', cy.nodes().size(), 'edges:', cy.edges().size());
     cy.resize();
+    ensureCanvasSize(cy.container());
 
     applyReadableLayout(cy, {
       spacing: 340,
