@@ -23,38 +23,6 @@ function pushWarning(msg) {
 }
 
 /* ---------------------
-   Plugins
----------------------- */
-function registerCytoscapePlugins() {
-  try { if (window.cytoscapeCoseBilkent) cytoscape.use(window.cytoscapeCoseBilkent); } catch {}
-  try { if (window.cytoscapeMinimap) cytoscape.use(window.cytoscapeMinimap); } catch {}
-  try { if (window.cytoscapeSvg) cytoscape.use(window.cytoscapeSvg); } catch {}
-}
-
-/* ---------------------
-   Ensure Findings container exists
----------------------- */
-function ensureFindingsContainer() {
-  let el = document.getElementById('findings') ||
-           document.getElementById('findings-list') ||
-           document.querySelector('.findings');
-  if (el) return el;
-
-  const details = document.getElementById('details');
-  const parent = details ? details.parentElement : document.body;
-
-  const wrap = document.createElement('div');
-  wrap.id = 'findings';
-  wrap.className = 'findings';
-  wrap.style.padding = '8px 10px';
-  wrap.style.maxHeight = '40vh';
-  wrap.style.overflow = 'auto';
-  wrap.style.borderTop = '1px solid #eee';
-  parent.appendChild(wrap);
-  return wrap;
-}
-
-/* ---------------------
    Legend (simple)
 ---------------------- */
 function legend() {
