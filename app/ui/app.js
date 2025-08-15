@@ -23,13 +23,19 @@ function pushWarning(msg) {
   if (det.length > 12) det.slice(0, det.length - 12).forEach(x => x.remove());
 }
 
-// Ensure the Cytoscape container has a usable size
+// Ensure the Cytoscape container has a usable size (prevents “blank” canvas)
 function ensureCanvasSize(container) {
+  if (!container) return;
   const rect = container.getBoundingClientRect();
-  if (!rect || rect.height < 40) {
+  if (!rect || rect.width < 40 || rect.height < 40) {
+    // Sidebar is 360px wide in your layout; reserve that much and fill the rest.
+    container.style.width = 'calc(100vw - 360px)';
     container.style.height = '100vh';
-    container.style.width = '100%';
-    console.log('[ui] enforced canvas size to 100vh');
+    container.style.display = 'block';
+    container.style.position = 'relative';
+    // Reflow in case this runs after elements are added
+    if (window.cy) { window.cy.resize(); }
+    console.log('[ui] enforced canvas size to calc(100vw - 360px) × 100vh');
   }
 }
 
@@ -754,6 +760,18 @@ function initCySafe() {
       gravity: 0.25,
       numIter: 1200,
       tile: true
+    }
+  });
+
+  // Keep the canvas healthy across window/layout changes
+  window.addEventListener('resize', () => {
+    ensureCanvasSize(container);
+    cy && cy.resize();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      ensureCanvasSize(container);
+      cy && (cy.resize(), cy.fit(cy.elements(), 60));
     }
   });
 
