@@ -349,7 +349,7 @@ async def open_in_console(arn: str = Query(...)):
             url = f"https://{region}.console.aws.amazon.com/apigateway/main/apis/{quote_plus(api_id)}/routes"
         elif service == 'cloudfront':
             dist_id = _id_last(arn)
-            url = f"https://{region}.console.aws.amazon.com/cloudfront/v3/home?region={region}#/distributions/{quote_plus(dist_id)}"
+            url = ("https://us-east-1.console.aws.amazon.com/cloudfront/v4/home?region=us-east-1#/distributions/{}".format(quote_plus(dist_id)))
         elif service == 's3':
             name = rest.split(':::')[-1]
             url = f"https://s3.console.aws.amazon.com/s3/buckets/{quote_plus(name)}?region={region}&bucketType=general&tab=objects"
