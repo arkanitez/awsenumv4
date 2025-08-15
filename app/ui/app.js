@@ -23,6 +23,16 @@ function pushWarning(msg) {
   if (det.length > 12) det.slice(0, det.length - 12).forEach(x => x.remove());
 }
 
+// Ensure the Cytoscape container has a usable size
+function ensureCanvasSize(container) {
+  const rect = container.getBoundingClientRect();
+  if (!rect || rect.height < 40) {
+    container.style.height = '100vh';
+    container.style.width = '100%';
+    console.log('[ui] enforced canvas size to 100vh');
+  }
+}
+
 /* ---------------------
    Legend (simple)
 ---------------------- */
@@ -723,6 +733,7 @@ function initCySafe() {
   if (!window.cytoscape) throw new Error('Cytoscape failed to load.');
   const container = document.getElementById('cy');
   if (!container) throw new Error('#cy container not found');
+  ensureCanvasSize(container);
 
   registerCytoscapePlugins();
 
