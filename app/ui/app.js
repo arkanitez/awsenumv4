@@ -413,22 +413,40 @@ function injectIcons(elements) {
   return elements;
 }
 function sanitizeElements(elements) {
-  const arr = Array.isArray(elements) ? elements : [];
-  const ok = [];
-  for (const el of arr) {
-    if (!el || !el.group || !el.data) continue;
-    const g = el.group;
-    const d = el.data;
+  const arr = Array.isArray(elements)
+    ? elements
+    : (elements && Array.isArray(elements.nodes) && Array.isArray(elements.edges))
+      ? [...elements.nodes, ...elements.edges]
+      : [];
 
-    if (g === 'nodes') {
-      if (!d.id) continue;
-      d.label = d.label || d.name || d.id;
-    } else if (g === 'edges') {
+  const ok = [];
+
+  for (const el of arr) {
+    if (!el || !el.data) continue;
+
+    const d = el.data;
+    // Infer group if missing
+    const isEdge = !!(d.source && d.target);
+    const group = el.group || (isEdge ? 'edges' : 'nodes');
+
+    if (group === 'edges') {
+      // Require a valid edge
       if (!d.source || !d.target) continue;
-      d.label = d.label || '';
+      el.group = 'edges';
+      if (d.label == null) d.label = '';
+    } else {
+      // Require a valid node
+      if (!d.id) continue;
+      el.group = 'nodes';
+      if (d.label == null) d.label = d.name || d.id;
     }
+
+    // Normalize classes if an array was provided
+    if (Array.isArray(el.classes)) el.classes = el.classes.join(' ');
+
     ok.push(el);
   }
+
   return ok;
 }
 
@@ -785,8 +803,12 @@ async function handleEnumerateClick() {
     const { ok, status, data } = await postEnumerate(rid);
     if (!ok) { renderWarnings([data?.error || `Request failed with ${status}`]); return; }
 
-    let elements = data?.elements || [];
-    console.log('[ui] elements count:', elements.length);
+    // Support either a flat array OR { nodes: [...], edges: [...] }
+    if (!Array.isArray(elements) && elements && Array.isArray(elements.nodes) && Array.isArray(elements.edges)) {
+      elements = [...elements.nodes, ...elements.edges];
+    }
+    
+    console.log('[ui] elements count:', Array.isArray(elements) ? elements.length : 'n/a');
     window.lastElements = elements;
 
     window.lastFindings  = Array.isArray(data?.findings) ? data.findings : [];
