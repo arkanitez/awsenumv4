@@ -338,26 +338,33 @@ async def open_in_console(arn: str = Query(...)):
         service = parts[2]; region = parts[3]
         rest = ':'.join(parts[5:])
         url = None
+
         if service == 'lambda':
             name = rest.split('function:')[-1]
             url = f"https://{region}.console.aws.amazon.com/lambda/home?region={region}#/functions/{quote_plus(name)}"
-        elif service == 'dynamodb':
-            name = rest.split('table/')[-1]
-            url = f"https://{region}.console.aws.amazon.com/dynamodbv2/home?region={region}#table?name={quote_plus(name)}"
+
         elif service == 'apigateway':
-            api_id = rest.split('/apis/')[-1]
+            api_id = _id_last(arn)
             url = f"https://{region}.console.aws.amazon.com/apigateway/main/apis/{quote_plus(api_id)}/routes"
+
         elif service == 'cloudfront':
             dist_id = _id_last(arn)
-            url = ("https://us-east-1.console.aws.amazon.com/cloudfront/v4/home?region=us-east-1#/distributions/{}".format(quote_plus(dist_id)))
+            url = ("https://us-east-1.console.aws.amazon.com/cloudfront/v4/home"
+                   "?region=us-east-1#/distributions/{}".format(quote_plus(dist_id)))
+
         elif service == 's3':
             name = rest.split(':::')[-1]
-            url = f"https://s3.console.aws.amazon.com/s3/buckets/{quote_plus(name)}?region={region}&bucketType=general&tab=objects"
+            url = (f"https://s3.console.aws.amazon.com/s3/buckets/{quote_plus(name)}"
+                   f"?region={region}&bucketType=general&tab=objects")
+
         if not url:
             return JSONResponse({"error": f"unsupported arn: {arn}"}, status_code=400)
+
         return RedirectResponse(url=url, status_code=307)
+
     except Exception as e:
         return JSONResponse({"error": f"console redirect failed: {e}"}, status_code=500)
+
 
 # -----------------------------------------------------------------------------
 # Enumerate orchestration (PARALLEL + TIMEOUT, findings preserved)
