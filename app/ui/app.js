@@ -255,7 +255,7 @@ function ensureFindingsContainer() {
   wrap.style.padding = '8px 10px';
   wrap.style.maxHeight = '40vh';
   wrap.style.overflow = 'auto';
-  wrap.style.borderTop = '1px solid '#eee';
+  wrap.style.borderTop = '1px solid #eee';
   parent.appendChild(wrap);
   return wrap;
 }
