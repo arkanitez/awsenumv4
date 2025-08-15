@@ -16,34 +16,115 @@ function pushWarning(msg) {
   a.open = true;                       // ensure visible
   a.innerText = String(msg);
   w.appendChild(a);
-  const det = [...document.querySelectorAll('sl-details')].find(d => d.getAttribute('summary') === 'Warnings');
-  if (det) det.setAttribute('open', '');
+  const det = [...document.querySelectorAll(
+    '#details sl-alert[variant="warning"], #details sl-alert[variant="danger"]'
+  )];
+  if (det.length > 12) det.slice(0, det.length - 12).forEach(x => x.remove());
 }
 
-window.addEventListener('error', e => {
-  console.error('[ui] window error:', e.error || e.message || e);
-  pushWarning(e.error || e.message || e);
-});
-window.addEventListener('unhandledrejection', e => {
-  console.error('[ui] unhandledrejection:', e.reason);
-  pushWarning(e.reason);
-});
+/* ---------------------
+   Plugins
+---------------------- */
+function registerCytoscapePlugins() {
+  try { if (window.cytoscapeCoseBilkent) cytoscape.use(window.cytoscapeCoseBilkent); } catch {}
+  try { if (window.cytoscapeMinimap) cytoscape.use(window.cytoscapeMinimap); } catch {}
+  try { if (window.cytoscapeSvg) cytoscape.use(window.cytoscapeSvg); } catch {}
+}
 
 /* ---------------------
-   Icons (safe if missing)
+   Ensure Findings container exists
+---------------------- */
+function ensureFindingsContainer() {
+  let el = document.getElementById('findings') ||
+           document.getElementById('findings-list') ||
+           document.querySelector('.findings');
+  if (el) return el;
+
+  const details = document.getElementById('details');
+  const parent = details ? details.parentElement : document.body;
+
+  const wrap = document.createElement('div');
+  wrap.id = 'findings';
+  wrap.className = 'findings';
+  wrap.style.padding = '8px 10px';
+  wrap.style.maxHeight = '40vh';
+  wrap.style.overflow = 'auto';
+  wrap.style.borderTop = '1px solid #eee';
+  parent.appendChild(wrap);
+  return wrap;
+}
+
+/* ---------------------
+   Legend (simple)
+---------------------- */
+function legend() {
+  const el = document.getElementById('legend');
+  if (!el) return;
+  el.innerHTML = `
+    <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:center; font-size:12px">
+      <span><span style="display:inline-block;width:12px;height:12px;border:3px solid #ef4444;border-radius:3px;margin-right:6px;"></span>High</span>
+      <span><span style="display:inline-block;width:12px;height:12px;border:2px solid #f59e0b;border-radius:3px;margin-right:6px;"></span>Medium</span>
+      <span><span style="display:inline-block;width:12px;height:12px;border:1.5px solid #facc15;border-radius:3px;margin-right:6px;"></span>Low</span>
+      <span><span style="display:inline-block;width:18px;height:2px;background:#f97316;margin-right:6px;"></span>Network</span>
+      <span><span style="display:inline-block;width:18px;height:2px;background:#2563eb;margin-right:6px;"></span>Resource</span>
+      <span><span style="display:inline-block;width:18px;height:2px;background:#0ea5e9;margin-right:6px;border-bottom:1px dotted #0ea5e9;"></span>Data</span>
+    </div>
+  `;
+}
+
+/* ---------------------
+   Warnings panel render
+---------------------- */
+function renderWarnings(list) {
+  if (!Array.isArray(list) || list.length === 0) return;
+  list.forEach(pushWarning);
+}
+
+/* ---------------------
+   Severity → Shoelace variant
+---------------------- */
+function slVariantForSeverity(sev) {
+  const s = String(sev || '').toUpperCase();
+  if (s === 'HIGH') return 'danger';
+  if (s === 'MEDIUM') return 'warning';
+  return 'neutral';
+}
+
+/* ---------------------
+   Misc helpers
+---------------------- */
+function escapeHtml(s) {
+  return String(s || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+function idLastSegment(id) {
+  const s = String(id || '');
+  const t = s.split(':').pop();
+  return t.includes('/') ? t.split('/').pop() : t;
+}
+function lambdaNameFromArn(arn) {
+  const s = String(arn || '');
+  const i = s.indexOf(':function:');
+  return i >= 0 ? s.substring(i + ':function:'.length) : '';
+}
+function ensureArray(a) { return Array.isArray(a) ? a : []; }
+
+/* ---------------------
+   Icons (fallbacks if missing)
 ---------------------- */
 const ICONS = {
   vpc: '/ui/icons/vpc.svg',
   subnet: '/ui/icons/subnet.svg',
-  security_group: '/ui/icons/security-group.svg',
-  route_table: '/ui/icons/route-table.svg',
-  igw: '/ui/icons/internet-gateway.svg',
-  nat_gateway: '/ui/icons/nat-gateway.svg',
-  eni: '/ui/icons/eni.svg',
-  instance: '/ui/icons/ec2-instance.svg',
+  instance: '/ui/icons/ec2.svg',
+  ec2: '/ui/icons/ec2.svg',
+  ebs_volume: '/ui/icons/ebs.svg',
+  ebs_snapshot: '/ui/icons/ebs-snapshot.svg',
+  ami: '/ui/icons/ami.svg',
   load_balancer: '/ui/icons/alb.svg',
-  target_group: '/ui/icons/target-group.svg',
-  lambda: '/ui/icons/lambda.svg',
+  nlb: '/ui/icons/nlb.svg',
+  apigw: '/ui/icons/api-gateway.svg',
   api_gw_v2: '/ui/icons/api-gateway.svg',
   s3_bucket: '/ui/icons/s3.svg',
   sns_topic: '/ui/icons/sns.svg',
@@ -71,11 +152,11 @@ const ICONS = {
    Containers (pale fills)
 ---------------------- */
 const CONTAINER_COLOR = {
-  vpc:          { fill: 'rgba(223, 252, 243, 0.06)',  border: '#10b981' }, // emerald
-  subnet:       { fill: 'rgba(228, 238, 254, 0.06)',  border: '#3b82f6' }, // blue
-  eks_cluster:  { fill: 'rgba(245, 158, 11, 0.06)',  border: '#f59e0b' }, // amber
-  ecs_cluster:  { fill: 'rgba(147, 51, 234, 0.06)',  border: '#9333ea' }, // purple
-  rds_cluster:  { fill: 'rgba(99, 102, 241, 0.06)',  border: '#6366f1' }  // indigo
+  vpc:         { fill: 'rgba(16, 185, 129, 0.06)',  border: '#10b981' },
+  subnet:      { fill: 'rgba(59, 130, 246, 0.06)',  border: '#3b82f6' },
+  eks_cluster: { fill: 'rgba(245, 158, 11, 0.06)',  border: '#f59e0b' },
+  ecs_cluster: { fill: 'rgba(107, 114, 128, 0.06)', border: '#6b7280' },
+  rds_cluster: { fill: 'rgba(99, 102, 241, 0.06)',  border: '#6366f1' }
 };
 
 /* ---------------------
@@ -131,22 +212,15 @@ const NODE_STYLES = [
       'border-color': '#ef4444',
       'border-width': 3
   }},
-   {
-     selector: 'edge[severity = "medium"], edge[severity = "MEDIUM"]',
-     style: { 'line-color': '#f59e0b', 'target-arrow-color': '#f59e0b', 'width': 2 }
-   },
-   {
-     selector: 'edge[severity = "low"], edge[severity = "LOW"]',
-     style: { 'line-color': '#facc15', 'target-arrow-color': '#facc15', 'width': 1.5 }
-   },
-   {
-     selector: 'node[severity = "medium"], node[severity = "MEDIUM"]',
-     style: { 'border-color': '#f59e0b', 'border-width': 2 }
-   },
-   {
-     selector: 'node[severity = "low"], node[severity = "LOW"]',
-     style: { 'border-color': '#facc15', 'border-width': 1.5 }
-   },
+  { selector: 'node[severity = "medium"], node[severity = "MEDIUM"]', style: {
+      'border-color': '#f59e0b',
+      'border-width': 2
+  }},
+  { selector: 'node[severity = "low"], node[severity = "LOW"]', style: {
+      'border-color': '#facc15',
+      'border-width': 1.5
+  }},
+  { selector: 'node.faded', style: { 'opacity': 0.18 } },
 ];
 
 const EDGE_STYLES = [
@@ -170,6 +244,17 @@ const EDGE_STYLES = [
       'target-arrow-color': '#ef4444',
       'width': 3
   }},
+  { selector: 'edge[severity = "medium"], edge[severity = "MEDIUM"]', style: {
+      'line-color': '#f59e0b',
+      'target-arrow-color': '#f59e0b',
+      'width': 2
+  }},
+  { selector: 'edge[severity = "low"], edge[severity = "LOW"]', style: {
+      'line-color': '#facc15',
+      'target-arrow-color': '#facc15',
+      'width': 1.5
+  }},
+  { selector: 'edge.faded', style: { 'opacity': 0.18 } },
 ];
 
 /* ---------------------
@@ -190,269 +275,326 @@ function ensureFindingsContainer() {
            document.querySelector('.findings');
   if (el) return el;
 
-  // Create one next to #details (left sidebar), so it’s always visible
   const details = document.getElementById('details');
-  const host = details && details.parentElement ? details.parentElement : document.body;
+  const parent = details ? details.parentElement : document.body;
 
-  el = document.createElement('div');
-  el.id = 'findings';
-  el.style.marginTop = '12px';
-  el.innerHTML = '<div class="muted">No findings.</div>';
-  host.appendChild(el);
-  console.warn('[ui] Created #findings container automatically (was missing).');
-  return el;
+  const wrap = document.createElement('div');
+  wrap.id = 'findings';
+  wrap.className = 'findings';
+  wrap.style.padding = '8px 10px';
+  wrap.style.maxHeight = '40vh';
+  wrap.style.overflow = 'auto';
+  wrap.style.borderTop = '1px solid #eee';
+  parent.appendChild(wrap);
+  return wrap;
 }
 
 /* ---------------------
-   Legend
+   Links & details
 ---------------------- */
-function legend() {
-  const items = [
-    ['VPC (container)', CONTAINER_COLOR.vpc.border],
-    ['Subnet (container)', CONTAINER_COLOR.subnet.border],
-    ['Resource edges', '#2563eb'],
-    ['Network edges', '#f97316'],
-    ['Data/invoke edges', '#0ea5e9 (dotted)'],
-    ['Derived', 'dashed'],
-    ['Issues (High)', '#ef4444']
-  ];
-  const el = document.getElementById('legend');
-  if (!el) return;
-  el.innerHTML = '';
-  for (const [name, color] of items) {
-    const row = document.createElement('div');
-    row.className = 'legend-row';
-    const sw = document.createElement('span');
-    sw.className = 'swatch';
-    if (color === 'dashed') {
-      sw.style.border = '1px dashed #9ca3af';
-      sw.style.background = 'transparent';
-    } else {
-      sw.style.background = String(color).split(' ')[0];
+/** Build console & download links for common services when backend didn't supply any. */
+function buildQuickLinks(data) {
+  const links = [];
+  const type = String(data?.type || '');
+  const region = String(data?.region || '');
+  const rid = window.lastRid || '';
+  const details = data?.details || {};
+  const id = String(data?.id || '');
+
+  // S3 bucket
+  if (type === 's3_bucket') {
+    const bucket = details.name || details.bucket || idLastSegment(id);
+    if (bucket) {
+      links.push({
+        title: 'Open in AWS Console',
+        href: `https://s3.console.aws.amazon.com/s3/buckets/${encodeURIComponent(bucket)}?region=${encodeURIComponent(region)}&tab=properties`
+      });
+      if (rid) {
+        links.push({
+          title: 'Download S3 bucket configuration (JSON)',
+          href: `/download/s3/config?rid=${encodeURIComponent(rid)}&region=${encodeURIComponent(region)}&bucket=${encodeURIComponent(bucket)}`
+        });
+      }
     }
-    row.appendChild(sw);
-    row.appendChild(document.createTextNode(name));
-    el.appendChild(row);
   }
-}
 
-/* ---------------------
-   Warnings / Findings / Details
----------------------- */
-function renderWarnings(list) {
-  const el = document.getElementById('warnings');
-  if (!el) return;
-  el.innerHTML = '';
-  (list || []).forEach(w => {
-    const a = document.createElement('sl-alert');
-    a.variant = 'warning';
-    a.closable = true;
-    a.open = true;                        // <-- make visible
-    a.innerText = String(w);
-    el.appendChild(a);
-  });
-  if ((list || []).length) {
-    const det = [...document.querySelectorAll('sl-details')].find(d => d.getAttribute('summary') === 'Warnings');
-    if (det) det.setAttribute('open', '');
+  // Lambda
+  if (type === 'lambda') {
+    const arn = details.arn || idLastSegment(id);
+    const name = details.name || lambdaNameFromArn(arn) || data.label || '';
+    const link = `https://${region}.console.aws.amazon.com/lambda/home?region=${encodeURIComponent(region)}#/functions/${encodeURIComponent(name)}?tab=code`;
+    links.push({ title: 'Open in AWS Console', href: link });
   }
+
+  // CloudFront
+  if (type === 'cloudfront') {
+    const dist = idLastSegment(id);
+    links.push({
+      title: 'Open in AWS Console',
+      href: `https://us-east-1.console.aws.amazon.com/cloudfront/v4/home?region=us-east-1#/distributions/${encodeURIComponent(dist)}`
+    });
+  }
+
+  // CloudWatch Log Group
+  if (type === 'cloudwatch_log_group') {
+    const name = details.logGroupName || idLastSegment(id);
+    links.push({
+      title: 'Open log group',
+      href: `https://${region}.console.aws.amazon.com/cloudwatch/home?region=${encodeURIComponent(region)}#logsV2:log-groups/log-group/${encodeURIComponent(name)}`
+    });
+  }
+
+  return links;
 }
 
-// Map backend severities to Shoelace variants
-function slVariantForSeverity(sev) {
-  const s = String(sev || '').toUpperCase();
-  if (s === 'HIGH' || s === 'CRITICAL' || s === 'DANGER') return 'danger';
-  if (s === 'MEDIUM' || s === 'WARN' || s === 'WARNING') return 'warning';
-  if (s === 'LOW' || s === 'NEUTRAL') return 'neutral';
-  return 'primary'; // INFO or unknown
-}
-
-function renderFindings(list) {
+function renderFindings(findings) {
   const el = ensureFindingsContainer();
+  const arr = Array.isArray(findings) ? findings : [];
   el.innerHTML = '';
-  const arr = Array.isArray(list) ? list : [];
-  if (!arr.length) {
-    el.innerHTML = '<div class="muted">No findings.</div>';
+  if (arr.length === 0) {
+    const t = document.createElement('div');
+    t.className = 'muted';
+    t.innerText = 'No findings.';
+    el.appendChild(t);
     return;
   }
   for (const f of arr) {
     const a = document.createElement('sl-alert');
-    a.variant = slVariantForSeverity(f.severity);  // valid variant
+    a.variant = slVariantForSeverity(f.severity);
     a.closable = true;
-    a.open = true;                                  // show alert
+    a.open = true;
     a.innerText = `[${f.severity || 'INFO'}] ${f.title || ''}${f.detail ? ': ' + f.detail : ''}`;
     el.appendChild(a);
   }
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
-}
-
 function renderDetails(data) {
   const el = document.getElementById('details');
   if (!el) return;
-  const links = (data?.details && Array.isArray(data.details.links)) ? data.details.links : [];
+
+  // Start with backend-provided links (if any)
+  const existing = (data?.details && Array.isArray(data.details.links)) ? data.details.links : [];
+  const computed = buildQuickLinks(data);
+
+  // Merge and de-dup by href
+  const byHref = new Map();
+  for (const l of [...existing, ...computed]) {
+    if (!l || !l.href) continue;
+    const key = String(l.href);
+    if (!byHref.has(key)) byHref.set(key, { title: l.title || 'link', href: l.href });
+  }
+  const links = [...byHref.values()];
+
   let html = '';
   if (links.length) {
-    html += '<div style="margin-bottom:8px"><strong>Downloads</strong><ul style="margin:6px 0 10px 18px">';
+    html += '<div style="margin-bottom:8px"><strong>Downloads & Quick Links</strong><ul style="margin:6px 0 10px 18px">';
     for (const l of links) {
-      const t = String(l.title || 'download');
-      const href = String(l.href || '#');
-      html += `<li><a href="${href}" target="_blank" rel="noopener">${escapeHtml(t)}</a></li>`;
+      html += `<li><a href="${escapeHtml(l.href)}" target="_blank" rel="noreferrer">${escapeHtml(l.title)}</a></li>`;
     }
     html += '</ul></div>';
   }
-  html += `<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+
+  html += `<pre style="max-height:38vh;overflow:auto;border:1px solid #eee;padding:10px;background:#fafafa;border-radius:6px">${escapeHtml(JSON.stringify(data?.details || {}, null, 2))}</pre>`;
   el.innerHTML = html;
 }
 
 /* ---------------------
-   Findings helpers
+   Findings index
 ---------------------- */
-function indexFindings(findings) {
-  const map = {};
-  if (!Array.isArray(findings)) return map;
-  for (const f of findings) {
-    const id = f && f.id;
-    if (!id) continue;
-    if (!map[id]) map[id] = [];
-    map[id].push(f);
+function indexFindings(list) {
+  const byId = {};
+  for (const f of Array.isArray(list) ? list : []) {
+    const id = String(f.id || '');
+    (byId[id] ||= []).push(f);
   }
-  return map;
+  return byId;
 }
-
-function getFindingsForElement(d) {
-  if (!d) return [];
-  // 1) inline
-  if (Array.isArray(d.findings) && d.findings.length) return d.findings;
-  if (Array.isArray(d.issues) && d.issues.length) return d.issues;
-
-  const id = d.id;
-  const all = Array.isArray(window.lastFindings) ? window.lastFindings : [];
-
-  // 2) server-supplied index
-  const map = window.findingsById || {};
-  if (id && map[id] && map[id].length) return map[id];
-
-  // 3) client scan
-  if (id) {
-    const direct = all.filter(f => f && f.id === id);
-    if (direct.length) return direct;
-  }
-
-  // 4) synthetic if visually flagged but no text finding
-  const flagged = (typeof d.severity === 'string' && d.severity.toLowerCase() === 'high');
-  let hasIssueClass = false;
-  try {
-    const coll = cy && id ? cy.getElementById(id) : null;
-    if (coll) {
-      const present = (typeof coll.nonempty === 'function') ? coll.nonempty() :
-                      (typeof coll.size === 'function') ? (coll.size() > 0) :
-                      (typeof coll.length === 'number' ? coll.length > 0 : true);
-      if (present) hasIssueClass = coll.hasClass('issue') || coll.hasClass('high');
-    }
-  } catch {}
-
-  if (flagged || hasIssueClass) {
-    return [{
-      id: id || '(unknown)',
-      type: d.type || 'resource',
-      severity: 'HIGH',
-      title: 'Security issue flagged',
-      detail: 'This element is highlighted as risky, but no detailed finding text was attached. Ensure the backend returns findings_by_id or inline findings for this element.',
-      region: d.region,
-      label: d.label
-    }];
-  }
-  return [];
+function getFindingsForElement(data) {
+  const id = String(data?.id || '');
+  return (window.findingsById && window.findingsById[id]) || [];
 }
 
 /* ---------------------
-   Element processing
+   Containers / icons / sanitization
 ---------------------- */
 function markContainers(elements) {
-  const parentIds = new Set(
-    (elements || [])
-      .filter(el => el && el.data && el.data.parent)
-      .map(el => el.data.parent)
-  );
-  return (elements || []).map(el => {
-    if (!el || !el.data || el.group !== 'nodes') return el;
-    const id = el.data.id;
-    if (!id || !parentIds.has(id)) return el;
-    const t = (el.data.type || '').trim();
-    const cls = (el.classes || '').trim();
-    const containerCls = ['container', t ? `container-${t}` : null].filter(Boolean).join(' ');
-    el.classes = (cls ? cls + ' ' : '') + containerCls;
-    if (el.data.icon) delete el.data.icon;
-    el.classes = el.classes.replace(/\bhas-icon\b/g, '').trim();
-    return el;
-  });
-}
+  const out = [];
+  const byId = new Map(elements.filter(e => e?.group === 'nodes').map(n => [n.data?.id, n]));
+  for (const el of elements) {
+    if (el.group !== 'nodes') { out.push(el); continue; }
+    const d = el.data || {};
+    if (!d.type) { out.push(el); continue; }
 
+    if (['vpc','subnet','eks_cluster','ecs_cluster','rds_cluster'].includes(d.type)) {
+      el.classes = (el.classes || '') + ' container container-' + d.type;
+    }
+    out.push(el);
+  }
+  return out;
+}
 function injectIcons(elements) {
-  return (elements || []).map(el => {
-    if (!el || !el.data || el.group !== 'nodes') return el;
-    const isContainer = /\bcontainer\b/.test(el.classes || '');
-    if (isContainer) {
-      if ('icon' in el.data) delete el.data.icon;
-      el.classes = (el.classes || '').replace(/\bhas-icon\b/g, '').trim();
-      return el;
-    }
-    const t = el.data.type;
-    const icon = ICONS[t];
+  for (const el of elements) {
+    if (el.group !== 'nodes') continue;
+    const d = el.data || {};
+    if (d.icon) continue;
+    const icon = ICONS[d.type];
     if (icon) {
-      el.data.icon = icon;
-      const cls = (el.classes || '').trim();
-      el.classes = (cls ? cls + ' ' : '') + 'has-icon';
-    } else {
-      if (!el.data.icon) delete el.data.icon;
-      el.classes = (el.classes || '').replace(/\bhas-icon\b/g, '').trim();
+      d.icon = icon;
+      el.classes = (el.classes || '') + ' has-icon';
     }
-    return el;
-  });
+  }
+  return elements;
 }
-
 function sanitizeElements(elements) {
-  const nodes = [], edges = [];
-  for (const el of elements || []) {
-    if (!el || !el.data) continue;
-    const isEdge = !!(el.data.source || el.data.target) || el.group === 'edges';
-    if (isEdge) edges.push(el); else nodes.push(el);
+  const arr = Array.isArray(elements) ? elements : [];
+  const ok = [];
+  for (const el of arr) {
+    if (!el || !el.group || !el.data) continue;
+    const g = el.group;
+    const d = el.data;
+
+    if (g === 'nodes') {
+      if (!d.id) continue;
+      d.label = d.label || d.name || d.id;
+    } else if (g === 'edges') {
+      if (!d.source || !d.target) continue;
+      d.label = d.label || '';
+    }
+    ok.push(el);
   }
-  const nodeMap = new Map();
-  for (const n of nodes) {
-    const id = n?.data?.id;
-    if (!id || nodeMap.has(id)) continue;
-    nodeMap.set(id, n);
-  }
-  const nodeIds = new Set(nodeMap.keys());
-  const edgeMap = new Map();
-  let dropped = 0;
-  for (const e of edges) {
-    const d = e.data || {};
-    if (!d.source || !d.target || !nodeIds.has(d.source) || !nodeIds.has(d.target)) { dropped++; continue; }
-    const eid = d.id || `${d.source}->${d.target}`;
-    if (!edgeMap.has(eid)) edgeMap.set(eid, e);
-  }
-  const cleaned = [...nodeMap.values(), ...edgeMap.values()];
-  if (dropped > 0) {
-    console.warn('[ui] filtered invalid edges:', dropped);
-    pushWarning(`Filtered ${dropped} edges referencing missing nodes. Check ID consistency.`);
-  }
-  return cleaned;
+  return ok;
 }
 
 /* ---------------------
-   Progress UI
+   Cluster-aware layout helpers (no external plugins)
+---------------------- */
+function _runCose(eles, opts = {}) {
+  const lay = eles.layout({
+    name: 'cose',
+    animate: false,
+    fit: false,
+    padding: 20,
+    idealEdgeLength: (opts && opts.idealEdgeLength) || 110,
+    nodeRepulsion: (opts && opts.nodeRepulsion) || 400000,
+    edgeElasticity: (opts && opts.edgeElasticity) || 100,
+    nestingFactor: (opts && opts.nestingFactor) || 0.8,
+    gravity: (opts && opts.gravity) || 1,
+    componentSpacing: (opts && opts.componentSpacing) || 70,
+    numIter: (opts && opts.numIter) || 1500,
+    initialTemp: 200,
+    coolingFactor: 0.95,
+    minTemp: 1.0,
+    randomize: true
+  });
+  lay.run();
+}
+
+function _bbCenter(bb) {
+  return { x: (bb.x1 + bb.x2) / 2, y: (bb.y1 + bb.y2) / 2, w: bb.w, h: bb.h };
+}
+
+function _moveBy(collection, dx, dy) {
+  collection.positions(n => {
+    const p = n.position();
+    return { x: p.x + dx, y: p.y + dy };
+  });
+}
+
+function _packGrid(rects, spacing) {
+  if (!rects.length) return [];
+  const maxW = Math.max.apply(null, rects.map(r => r.bb.w || 1));
+  const maxH = Math.max.apply(null, rects.map(r => r.bb.h || 1));
+  const stepX = maxW + spacing;
+  const stepY = maxH + spacing;
+  const cols = Math.max(1, Math.ceil(Math.sqrt(rects.length)));
+  const placements = [];
+  for (let i = 0; i < rects.length; i++) {
+    const r = Math.floor(i / cols);
+    const c = i % cols;
+    placements.push({ i, x: c * stepX, y: r * stepY });
+  }
+  return placements;
+}
+
+function _clusterParents(cy) {
+  const parents = cy.nodes('node:parent');
+  // Prefer VPC parents first if present
+  const vpcs = parents.filter('[type = "vpc"]');
+  const others = parents.difference(vpcs);
+  return vpcs.union(others);
+}
+
+function _topLevelNodes(cy) {
+  return cy.nodes().filter(n => n.ancestors().length === 0 && !n.isParent());
+}
+
+function applyReadableLayout(cy, opts = {}) {
+  const spacing = (opts && opts.spacing) || 320;
+  const coseOpts = (opts && opts.cose) || {};
+  cy.startBatch();
+
+  // Label wrapping + compound padding (in case styles didn't set them yet)
+  cy.style()
+    .selector('node')
+    .style({ 'text-wrap': 'wrap', 'text-max-width': 160 })
+    .selector('node:parent')
+    .style({ 'padding': 18, 'background-opacity': 0.04, 'text-valign': 'top', 'text-halign': 'center' })
+    .update();
+
+  const parents = _clusterParents(cy);
+  const clusters = [];
+  parents.forEach(p => {
+    const group = p.union(p.descendants());
+    if (group.length > 0) {
+      _runCose(group, coseOpts);
+      const bb = group.boundingBox({ includeLabels: true, includeOverlays: false });
+      clusters.push({ id: p.id(), nodes: group, bb: _bbCenter(bb) });
+    }
+  });
+
+  // Layout top-level nodes in a concentric spread
+  const top = _topLevelNodes(cy);
+  if (top.length > 0) {
+    const lay = top.layout({
+      name: 'concentric',
+      animate: false,
+      fit: false,
+      concentric: n => (n.data('severity') === 'high' ? 3 : Math.max(1, n.degree(false))),
+      levelWidth: () => 1,
+      minNodeSpacing: 60,
+      startAngle: (3 * Math.PI) / 2,
+      sweep: 2 * Math.PI,
+      padding: 40
+    });
+    lay.run();
+  }
+
+  if (clusters.length > 0) {
+    const placements = _packGrid(clusters, spacing);
+    placements.forEach(pl => {
+      const c = clusters[pl.i];
+      const cur = c.bb;
+      const dx = pl.x - cur.x;
+      const dy = pl.y - cur.y;
+      _moveBy(c.nodes, dx, dy);
+    });
+  }
+
+  cy.endBatch();
+  cy.fit(cy.elements(), 60);
+}
+
+/* ---------------------
+   Progress bar
 ---------------------- */
 function ensureProgressBar() {
   let wrap = document.getElementById('progress-wrap');
   if (wrap) return wrap;
+
   wrap = document.createElement('div');
   wrap.id = 'progress-wrap';
-  wrap.style.position = 'absolute';
-  wrap.style.left = '360px';
+  wrap.style.position = 'fixed';
+  wrap.style.left = '0';
   wrap.style.right = '0';
   wrap.style.top = '0';
   wrap.style.padding = '10px 16px 0 16px';
@@ -470,14 +612,6 @@ function ensureProgressBar() {
   bar.value = 0;
   bar.setAttribute('label', 'Starting…');
 
-  const txt = document.createElement('div');
-  txt.id = 'progress-text';
-  txt.style.marginTop = '6px';
-  txt.style.fontSize = '12px';
-  txt.style.opacity = '0.9';
-  txt.textContent = 'Starting…';
-  
-  inner.appendChild(txt);
   inner.appendChild(bar);
   wrap.appendChild(inner);
   document.body.appendChild(wrap);
@@ -492,43 +626,25 @@ function showProgress() {
 function hideProgress() {
   const wrap = document.getElementById('progress-wrap');
   if (wrap) wrap.style.display = 'none';
-  if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
 }
 function newRid() {
-  const buf = new Uint8Array(16);
-  crypto.getRandomValues(buf);
-  buf[6] = (buf[6] & 0x0f) | 0x40;
-  buf[8] = (buf[8] & 0x3f) | 0x80;
-  const hex = [...buf].map(b => b.toString(16).padStart(2, '0')).join('');
-  return `${hex.substr(0,8)}-${hex.substr(8,4)}-${hex.substr(12,4)}-${hex.substr(16,4)}-${hex.substr(20)}`;
+  return 'rid_' + Math.random().toString(36).slice(2);
 }
 async function pollProgress(rid) {
+  const bar = document.getElementById('progress-bar');
+  if (!bar) return;
   try {
-    const res = await fetch(`/progress?rid=${encodeURIComponent(rid)}`, { cache: 'no-store' });
-    if (!res.ok) return;
-    const js = await res.json();
-    const bar = document.getElementById('progress-bar');
-    if (!bar) return;
-    const total = Math.max(1, Number(js.total || 1));
-    const current = Math.min(total, Number(js.current || 0));
-    const pct = Math.round((current / total) * 100);
-    bar.value = pct;
-    const stage = String(js.stage || 'Enumerating…');
-    bar.setAttribute('label', `${stage} (${current}/${total})`);
-    const txt = document.getElementById('progress-text');
-    if (txt) txt.textContent = `${stage} (${current}/${total})`;
-    if (js.done && txt) txt.textContent = `Completed (${total}/${total})`;
-    if (js.done) {
-      bar.setAttribute('label', `Completed (${total}/${total})`);
-      setTimeout(hideProgress, 600);
-    }
-  } catch (e) {
-    // ignore
-  }
+    const res = await fetch(`/progress?rid=${encodeURIComponent(rid)}`);
+    const data = await res.json().catch(() => ({}));
+    if (!data) return;
+    if (typeof data.value === 'number') bar.value = data.value;
+    if (data.label) bar.setAttribute('label', data.label);
+    if (data.done) { clearInterval(progressTimer); progressTimer = null; hideProgress(); }
+  } catch {}
 }
 
 /* ---------------------
-   API
+   Enumerate POST
 ---------------------- */
 async function postEnumerate(rid) {
   const ak = (document.getElementById('ak')?.value || '').trim();
@@ -559,7 +675,6 @@ function initCySafe() {
     elements: [],
     minZoom: 0.25,
     maxZoom: 2.5,
-    wheelSensitivity: 0.1,
     pixelRatio: 1,
     boxSelectionEnabled: false,
     style: [...NODE_STYLES, ...EDGE_STYLES],
@@ -579,19 +694,34 @@ function initCySafe() {
     try { cy.minimap({}); } catch {}
   }
 
-  // IMPORTANT CHANGE: Do NOT fallback to all findings when a selection has none
+  // On selection: show only that element's findings
   cy.on('select', 'node,edge', (e) => {
     const d = e.target.data();
     renderDetails(d);
     const sel = getFindingsForElement(d);
     console.log('[ui] selection findings:', d.id, d.type, d.severity, '->', Array.isArray(sel) ? sel.length : 0);
-    renderFindings(sel);  // <-- render exactly the element's findings (may be empty)
+    renderFindings(sel);
   });
 
-  // When nothing is selected, show the full list
+  // When nothing is selected, show global list
   cy.on('unselect', () => {
     document.getElementById('details').innerHTML = '<div class="muted">Select a node or edge.</div>';
     renderFindings(window.lastFindings || []);
+  });
+
+  // Focus mode: click to highlight neighborhood; click background to reset
+  cy.on('tap', 'node', (evt) => {
+    if (evt.originalEvent && (evt.originalEvent.ctrlKey || evt.originalEvent.metaKey)) return;
+    const n = evt.target;
+    const hood = n.closedNeighborhood();
+    cy.elements().addClass('faded');
+    hood.removeClass('faded');
+    n.removeClass('faded');
+  });
+  cy.on('tap', (evt) => {
+    if (evt.target === cy) {
+      cy.elements().removeClass('faded');
+    }
   });
 
   const resetBtn = document.getElementById('btn-reset');
@@ -612,6 +742,7 @@ async function handleEnumerateClick() {
   if (!ak || !sk) { renderWarnings(['Please provide both Access Key ID and Secret Access Key.']); return; }
 
   const rid = newRid();
+  window.lastRid = rid;                 // <-- keep the last rid so links can use it
   showProgress();
   if (progressTimer) clearInterval(progressTimer);
   progressTimer = setInterval(() => pollProgress(rid), 500);
@@ -631,7 +762,6 @@ async function handleEnumerateClick() {
     console.log('[ui] findings total:', window.lastFindings.length,
                 'indexed ids:', Object.keys(window.findingsById || {}).slice(0, 5));
 
-    // Show all findings by default (nothing selected)
     renderFindings(window.lastFindings);
 
     // Graph
@@ -643,19 +773,11 @@ async function handleEnumerateClick() {
     cy.add(elements);
     cy.resize();
 
-    const layout = cy.layout({
-      name: (window.cytoscapeCoseBilkent ? 'cose-bilkent' : 'breadthfirst'),
-      quality: 'default',
-      animate: false,
-      nodeRepulsion: 80000,
-      idealEdgeLength: 220,
-      gravity: 0.25,
-      numIter: 1200,
-      tile: true
+    // Cluster-aware readable layout
+    applyReadableLayout(cy, {
+      spacing: 340,
+      cose: { idealEdgeLength: 110, nodeRepulsion: 420000, componentSpacing: 70 }
     });
-    layout.run();
-    layout.on('layoutstop', () => { cy.fit(null, 60); });
-    setTimeout(() => { cy.fit(null, 60); }, 120);
 
     console.log('[ui] nodes:', cy.nodes().size(), 'edges:', cy.edges().size(),
                 'rect:', cy.container().getBoundingClientRect());
@@ -664,26 +786,25 @@ async function handleEnumerateClick() {
     renderWarnings([String(e)]);
   } finally {
     btn.loading = false;
-    setTimeout(() => pollProgress(rid), 200);
+    clearInterval(progressTimer); progressTimer = null;
+    hideProgress();
   }
 }
 
 /* ---------------------
-   Bind & boot
+   Bind UI
 ---------------------- */
 function bindUI() {
-  console.log('[ui] bindUI');
   const btn = document.getElementById('btn-enumerate');
-  if (!btn) { console.error('[ui] enumerate button not found'); return; }
-  Promise.all([
-    customElements.whenDefined('sl-button'),
-    customElements.whenDefined('sl-input'),
-    customElements.whenDefined('sl-progress-bar'),
-    customElements.whenDefined('sl-alert')   // ensure alert is defined before we use it
-  ]).then(() => {
-    console.log('[ui] custom elements ready; binding click handlers');
+  if (!btn) return;
+
+  // try Shoelace's sl-click if present, otherwise normal click
+  Promise.resolve().then(() => {
+    if ('sl-click' in (btn.__proto__ || {})) {
+      btn.addEventListener('sl-click', handleEnumerateClick);
+    }
     btn.addEventListener('click', handleEnumerateClick);
-    btn.addEventListener('sl-click', handleEnumerateClick);
+
     ['ak', 'sk'].forEach(id => {
       const el = document.getElementById(id);
       el && el.addEventListener('keydown', e => { if (e.key === 'Enter') handleEnumerateClick(); });
