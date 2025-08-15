@@ -933,9 +933,11 @@ function bindUI() {
 
 document.addEventListener('DOMContentLoaded', () => {
   console.log('[ui] DOMContentLoaded');
-  ensureCanvasSize(cyDiv); 
+  const cyDiv = document.getElementById('cy');   // <— add this
+  ensureCanvasSize(cyDiv);                       // <— now safe
   bindUI();
   try { initCySafe(); } catch (e) { renderWarnings([String(e)]); }
   legend();
   ensureFindingsContainer();
 });
+
