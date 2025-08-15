@@ -14,7 +14,7 @@ function pushWarning(msg) {
   const a = document.createElement('sl-alert');
   a.variant = 'warning';
   a.closable = true;
-  a.open = true;                       // ensure visible
+  a.open = true;
   a.innerText = String(msg);
   w.appendChild(a);
   const det = [...document.querySelectorAll(
@@ -89,7 +89,7 @@ const ICONS = {
   instance: '/ui/icons/ec2-instance.svg',
   ec2: '/ui/icons/ec2-instance.svg',
   load_balancer: '/ui/icons/alb.svg',
-  nlb: '/ui/icons/alb.svg',                 // closest available
+  nlb: '/ui/icons/alb.svg',
   apigw: '/ui/icons/api-gateway.svg',
   api_gw_v2: '/ui/icons/api-gateway.svg',
   s3_bucket: '/ui/icons/s3.svg',
@@ -123,11 +123,11 @@ const ICONS = {
    Containers (pale fills)
 ---------------------- */
 const CONTAINER_COLOR = {
-  vpc:         { fill: 'rgba(16, 185, 129, 0.06)',  border: '#10b981' },
-  subnet:      { fill: 'rgba(59, 130, 246, 0.06)',  border: '#3b82f6' },
-  eks_cluster: { fill: 'rgba(245, 158, 11, 0.06)',  border: '#f59e0b' },
-  ecs_cluster: { fill: 'rgba(107, 114, 128, 0.06)', border: '#6b7280' },
-  rds_cluster: { fill: 'rgba(99, 102, 241, 0.06)',  border: '#6366f1' }
+  vpc:          { fill: 'rgba(223, 252, 243, 0.06)',  border: '#10b981' }, // emerald
+  subnet:       { fill: 'rgba(228, 238, 254, 0.06)',  border: '#3b82f6' }, // blue
+  eks_cluster:  { fill: 'rgba(245, 158, 11, 0.06)',  border: '#f59e0b' }, // amber
+  ecs_cluster:  { fill: 'rgba(147, 51, 234, 0.06)',  border: '#9333ea' }, // purple
+  rds_cluster:  { fill: 'rgba(99, 102, 241, 0.06)',  border: '#6366f1' }  // indigo
 };
 
 /* ---------------------
@@ -263,7 +263,6 @@ function ensureFindingsContainer() {
 /* ---------------------
    Links & details
 ---------------------- */
-/** Build console & download links for common services when backend didn't supply any. */
 function buildQuickLinks(data) {
   const links = [];
   const type = String(data?.type || '');
@@ -279,7 +278,6 @@ function buildQuickLinks(data) {
         title: 'Open in AWS Console',
         href: `https://s3.console.aws.amazon.com/s3/buckets/${encodeURIComponent(bucket)}?region=${encodeURIComponent(region)}&tab=properties`
       });
-      // Fall back to a client-built link (include AK/SK so it can auth server-side)
       const akv = (document.getElementById('ak')?.value || '').trim();
       const skv = (document.getElementById('sk')?.value || '').trim();
       const credQS = akv && skv ? `&ak=${encodeURIComponent(akv)}&sk=${encodeURIComponent(skv)}` : '';
@@ -344,11 +342,9 @@ function renderDetails(data) {
   const el = document.getElementById('details');
   if (!el) return;
 
-  // Start with backend-provided links (if any)
   const existing = (data?.details && Array.isArray(data.details.links)) ? data.details.links : [];
   const computed = buildQuickLinks(data);
 
-  // Merge and de-dup by href
   const byHref = new Map();
   for (const l of [...existing, ...computed]) {
     if (!l || !l.href) continue;
@@ -489,7 +485,6 @@ function _packGrid(rects, spacing) {
 
 function _clusterParents(cy) {
   const parents = cy.nodes('node:parent');
-  // Prefer VPC parents first if present
   const vpcs = parents.filter('[type = "vpc"]');
   const others = parents.difference(vpcs);
   return vpcs.union(others);
@@ -504,7 +499,6 @@ function applyReadableLayout(cy, opts = {}) {
   const coseOpts = (opts && opts.cose) || {};
   cy.startBatch();
 
-  // Label wrapping + compound padding (in case styles didn't set them yet)
   cy.style()
     .selector('node')
     .style({ 'text-wrap': 'wrap', 'text-max-width': 160 })
@@ -523,7 +517,6 @@ function applyReadableLayout(cy, opts = {}) {
     }
   });
 
-  // Layout top-level nodes in a concentric spread
   const top = _topLevelNodes(cy);
   if (top.length > 0) {
     const lay = top.layout({
@@ -590,7 +583,7 @@ function ensureProgressBar() {
     const bar = document.createElement('sl-progress-bar');
     bar.id = 'progress-bar';
     bar.style.width = '100%';
-    bar.style.setProperty('--height', '10px'); // make bar thicker
+    bar.style.setProperty('--height', '10px');
     bar.value = 0;
 
     const text = document.createElement('div');
@@ -608,29 +601,47 @@ function ensureProgressBar() {
   return wrap;
 }
 
-function showProgress(initialLabel = 'Starting…') {
+function showProgress(initialLabel = 'Enumerating…') {
   const wrap = ensureProgressBar();
   wrap.style.display = 'block';
   const bar = document.getElementById('progress-bar');
   const text = document.getElementById('progress-text');
   if (bar) {
-    bar.setAttribute('indeterminate', ''); // pulse until first numeric update
+    bar.setAttribute('indeterminate', '');
     bar.value = 0;
   }
   if (text) text.textContent = initialLabel;
 }
-
 function hideProgress() {
   const wrap = document.getElementById('progress-wrap');
   if (wrap) wrap.style.display = 'none';
 }
-
 function _coercePercent(v) {
-  if (typeof v !== 'number' || isNaN(v)) return null;
-  if (v <= 1) return Math.max(0, Math.min(1, v)) * 100; // support 0..1
-  return Math.max(0, Math.min(100, v));                  // support 0..100
+  if (v === null || v === undefined) return null;
+  const n = typeof v === 'string' ? parseFloat(v) : v;
+  if (typeof n !== 'number' || isNaN(n)) return null;
+  if (n <= 1) return Math.max(0, Math.min(1, n)) * 100; // accept 0..1
+  return Math.max(0, Math.min(100, n));                  // accept 0..100
 }
-
+function _labelFrom(data) {
+  return (
+    (data && (data.label || data.stage)) ||
+    (data && data.service && data.region && `${data.region} · ${data.service}`) ||
+    (data && data.service) ||
+    ''
+  ).toString();
+}
+function _percentFrom(data) {
+  // accept value/pct/progress, or derive from current/total, or from step/steps etc.
+  const direct = _coercePercent(data && (data.value ?? data.percent ?? data.pct ?? data.progress));
+  if (direct !== null) return direct;
+  const cur = data && (data.current ?? data.step ?? data.i);
+  const tot = data && (data.total ?? data.steps ?? data.n);
+  if (typeof cur === 'number' && typeof tot === 'number' && tot > 0) {
+    return Math.max(0, Math.min(100, (cur / tot) * 100));
+  }
+  return null;
+}
 async function pollProgress(rid) {
   const bar = document.getElementById('progress-bar');
   const text = document.getElementById('progress-text');
@@ -640,31 +651,26 @@ async function pollProgress(rid) {
     const res = await fetch(`/progress?rid=${encodeURIComponent(rid)}`, { cache: 'no-store' });
     const data = await res.json().catch(() => ({}));
 
-    const pct = _coercePercent(data.value);
-    const label = (data.label || '').toString();
+    const pct = _percentFrom(data);
+    const label = _labelFrom(data);
 
     if (pct !== null) {
-      // switch to determinate on first valid number
       bar.removeAttribute('indeterminate');
       bar.value = pct;
       text.textContent = label ? `${label} (${pct.toFixed(0)}%)` : `${pct.toFixed(0)}%`;
     } else {
-      // stay indeterminate, but still show label if provided
       bar.setAttribute('indeterminate', '');
       if (label) text.textContent = label;
     }
 
-    // Reset backoff on any successful poll
     progressBackoffMs = 500;
 
-    if (data.done === true) {
+    if (data && data.done === true) {
       clearInterval(progressTimer);
       progressTimer = null;
-      // Let the user read the final label for a moment
       setTimeout(hideProgress, 600);
     }
   } catch {
-    // transient error: back off but keep pulsing
     bar.setAttribute('indeterminate', '');
     text.textContent = 'Working…';
     progressBackoffMs = Math.min(progressBackoffMs * 2, 5000);
@@ -726,7 +732,6 @@ function initCySafe() {
     try { cy.minimap({}); } catch {}
   }
 
-  // On selection: show only that element's findings
   cy.on('select', 'node,edge', (e) => {
     const d = e.target.data();
     renderDetails(d);
@@ -735,13 +740,12 @@ function initCySafe() {
     renderFindings(sel);
   });
 
-  // When nothing is selected, show global list
   cy.on('unselect', () => {
     document.getElementById('details').innerHTML = '<div class="muted">Select a node or edge.</div>';
     renderFindings(window.lastFindings || []);
   });
 
-  // Focus mode: click to highlight neighborhood; click background to reset
+  // Focus mode
   cy.on('tap', 'node', (evt) => {
     if (evt.originalEvent && (evt.originalEvent.ctrlKey || evt.originalEvent.metaKey)) return;
     const n = evt.target;
@@ -751,16 +755,11 @@ function initCySafe() {
     n.removeClass('faded');
   });
   cy.on('tap', (evt) => {
-    if (evt.target === cy) {
-      cy.elements().removeClass('faded');
-    }
+    if (evt.target === cy) cy.elements().removeClass('faded');
   });
 
   const resetBtn = document.getElementById('btn-reset');
   if (resetBtn) resetBtn.addEventListener('click', () => cy.fit(null, 60));
-
-  const rect = cy.container().getBoundingClientRect();
-  console.log('[ui] cy container rect:', rect);
 }
 
 /* ---------------------
@@ -774,10 +773,9 @@ async function handleEnumerateClick() {
   if (!ak || !sk) { renderWarnings(['Please provide both Access Key ID and Secret Access Key.']); return; }
 
   const rid = ('rid_' + Math.random().toString(36).slice(2));
-  window.lastRid = rid;                 // <-- keep the last rid so links can use it
+  window.lastRid = rid;
   showProgress('Enumerating…');
 
-  // Reset backoff and (re)start poller
   progressBackoffMs = 500;
   if (progressTimer) clearInterval(progressTimer);
   progressTimer = setInterval(() => pollProgress(rid), progressBackoffMs);
@@ -791,7 +789,6 @@ async function handleEnumerateClick() {
     console.log('[ui] elements count:', elements.length);
     window.lastElements = elements;
 
-    // Findings
     window.lastFindings  = Array.isArray(data?.findings) ? data.findings : [];
     window.findingsById  = data?.findings_by_id || indexFindings(window.lastFindings);
     console.log('[ui] findings total:', window.lastFindings.length,
@@ -799,7 +796,6 @@ async function handleEnumerateClick() {
 
     renderFindings(window.lastFindings);
 
-    // Graph
     elements = sanitizeElements(elements);
     elements = markContainers(elements);
     elements = injectIcons(elements);
@@ -808,21 +804,18 @@ async function handleEnumerateClick() {
     cy.add(elements);
     cy.resize();
 
-    // Cluster-aware readable layout
     applyReadableLayout(cy, {
       spacing: 340,
       cose: { idealEdgeLength: 110, nodeRepulsion: 420000, componentSpacing: 70 }
     });
 
-    console.log('[ui] nodes:', cy.nodes().size(), 'edges:', cy.edges().size(),
-                'rect:', cy.container().getBoundingClientRect());
+    console.log('[ui] nodes:', cy.nodes().size(), 'edges:', cy.edges().size());
     renderWarnings(data.warnings || []);
   } catch (e) {
     renderWarnings([String(e)]);
   } finally {
     btn.loading = false;
     clearInterval(progressTimer); progressTimer = null;
-    // poller hides on done=true; also hide on error/early-returns after a short delay
     setTimeout(hideProgress, 600);
   }
 }
@@ -834,7 +827,6 @@ function bindUI() {
   const btn = document.getElementById('btn-enumerate');
   if (!btn) return;
 
-  // try Shoelace's sl-click if present, otherwise normal click
   Promise.resolve().then(() => {
     if ('sl-click' in (btn.__proto__ || {})) {
       btn.addEventListener('sl-click', handleEnumerateClick);
