@@ -39,6 +39,29 @@ function ensureCanvasSize(container) {
   }
 }
 
+// Observe size changes on #cy and keep Cytoscape in sync
+function attachResizeObserver(cy) {
+  const container = cy.container();
+  if (!container) return;
+
+  const ro = new ResizeObserver(() => {
+    try {
+      cy.resize();
+      // Fit with padding, but only if we actually have elements
+      if (cy.elements().nonempty()) cy.fit(cy.elements(), 40);
+    } catch {}
+  });
+  ro.observe(container);
+
+  // As a fallback, also handle window resizes
+  window.addEventListener('resize', () => {
+    try {
+      cy.resize();
+      if (cy.elements().nonempty()) cy.fit(cy.elements(), 40);
+    } catch {}
+  });
+}
+
 /* ---------------------
    Legend (simple)
 ---------------------- */
@@ -763,6 +786,8 @@ function initCySafe() {
     }
   });
 
+  attachResizeObserver(cy);
+
   // Keep the canvas healthy across window/layout changes
   window.addEventListener('resize', () => {
     ensureCanvasSize(container);
@@ -865,6 +890,16 @@ async function handleEnumerateClick() {
 
     console.log('[ui] nodes:', cy.nodes().size(), 'edges:', cy.edges().size());
     renderWarnings(data.warnings || []);
+
+     // NEW: force a fit after layout settles
+   try {
+     cy.one('layoutstop', () => {
+       cy.resize();
+       if (cy.elements().nonempty()) cy.fit(cy.elements(), 60);
+     });
+     // If the layout is synchronous (breadthfirst), also call once directly
+     if (cy.elements().nonempty()) cy.fit(cy.elements(), 60);
+   } catch {}
   } catch (e) {
     renderWarnings([String(e)]);
   } finally {
@@ -898,6 +933,7 @@ function bindUI() {
 
 document.addEventListener('DOMContentLoaded', () => {
   console.log('[ui] DOMContentLoaded');
+  ensureCanvasSize(cyDiv); 
   bindUI();
   try { initCySafe(); } catch (e) { renderWarnings([String(e)]); }
   legend();
